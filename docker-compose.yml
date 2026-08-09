@@ -1,0 +1,23 @@
+services:
+  marquepage:
+    build:
+      context: .
+    image: marquepage:latest
+    container_name: marquepage
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Paris
+    volumes:
+      - /home/banserv/docker/marquepage/data:/app/data
+      - /home/banserv/docker/marquepage/covers:/app/covers
+    ports:
+      # Bindé sur Tailscale (100.68.214.9) uniquement — jamais sur 0.0.0.0.
+      - "100.68.214.9:8123:8000"
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
