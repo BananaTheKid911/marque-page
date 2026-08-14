@@ -363,6 +363,81 @@ class ReadEntryList(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# HIGHLIGHTS / CITATIONS
+# ---------------------------------------------------------------------------
+
+class HighlightCreate(BaseModel):
+    """Création d'un highlight (§5) : `text` seul est obligatoire.
+
+    `highlighted_at` (ISO) est la date du surlignage — distincte de
+    `created_at`, qui est la date de saisie dans l'app. `location` et
+    `source` ne sont pas exposés ici : `source` est forcé à `manual`
+    (l'import KOReader écrira `koreader` en Phase 5), `location` est une
+    donnée KOReader (xpointer/chapitre).
+    """
+
+    text: str = Field(min_length=1, max_length=20000)
+    note: str | None = Field(default=None, max_length=5000)
+    page: int | None = Field(default=None, ge=0)
+    chapter: str | None = Field(default=None, max_length=500)
+    color: str | None = Field(default=None, max_length=50)
+    highlighted_at: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _check_text(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("le texte du highlight ne peut pas être vide")
+        return v
+
+
+class HighlightUpdate(BaseModel):
+    """Mise à jour partielle d'un highlight."""
+
+    text: str | None = Field(default=None, min_length=1, max_length=20000)
+    note: str | None = Field(default=None, max_length=5000)
+    page: int | None = Field(default=None, ge=0)
+    chapter: str | None = Field(default=None, max_length=500)
+    color: str | None = Field(default=None, max_length=50)
+    highlighted_at: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def _check_text(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("le texte du highlight ne peut pas être vide")
+        return v
+
+
+class HighlightOut(BaseModel):
+    """Réponse `highlight`.
+
+    `book_title` est résolu pour le flux global (`GET /highlights`) — le
+    front doit savoir de quel livre vient une citation sans requête
+    supplémentaire. Il est rempli aussi dans la liste par livre, où il est
+    trivialement constant.
+    """
+
+    id: int
+    book_id: int
+    book_title: str | None = None
+    text: str
+    note: str | None = None
+    page: int | None = None
+    location: str | None = None
+    chapter: str | None = None
+    color: str | None = None
+    source: str  # manual | koreader
+    highlighted_at: str | None = None
+    created_at: str
+
+
+class HighlightList(BaseModel):
+    items: list[HighlightOut]
+    total: int
+
+
+# ---------------------------------------------------------------------------
 # STATS / DASHBOARD
 # ---------------------------------------------------------------------------
 
