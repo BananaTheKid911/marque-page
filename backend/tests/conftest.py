@@ -31,24 +31,30 @@ from app.services.metadata import MetadataClient  # noqa: E402
 
 
 @pytest.fixture()
-def client(tmp_path):
-    """TestClient branché sur un SQLite frais par test + HTTP mockés."""
+def db_engine(tmp_path):
+    """Engine SQLite frais par test, avec le schéma créé."""
     db_path = tmp_path / "test.db"
     engine = create_engine(
         f"sqlite:///{db_path}",
         connect_args={"check_same_thread": False},
     )
     SQLModel.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture()
+def client(db_engine):
+    """TestClient branché sur `db_engine` + HTTP mockés."""
 
     def _override_get_session():
-        with Session(engine) as session:
+        with Session(db_engine) as session:
             yield session
 
     app.dependency_overrides[get_session] = _override_get_session
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
-    engine.dispose()
 
 
 def make_metadata_client(handler):

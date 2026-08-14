@@ -83,11 +83,14 @@ class CoverPayload(BaseModel):
 
 class BookCreate(BaseModel):
     """Création d'un livre (depuis lookup ou manuel). Tous les champs sont
-    optionnels sauf `title`. `cover_url` déclenche le téléchargement local."""
+    optionnels sauf `title`. `cover_url` déclenche le téléchargement local.
+    `tags` et `genres` sont des listes de noms, upsertées dans `label`."""
 
     title: str = Field(min_length=1, max_length=500)
     subtitle: str | None = Field(default=None, max_length=500)
     authors: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    genres: list[str] = Field(default_factory=list)
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -124,12 +127,15 @@ class BookCreate(BaseModel):
 
 
 class BookUpdate(BaseModel):
-    """Mise à jour partielle d'un livre. `authors` remplace la liste complète.
+    """Mise à jour partielle d'un livre. `authors`, `tags` et `genres`
+    remplaçant la liste complète quand fournis (une liste vide les vide).
     `cover_url` déclenche un nouveau téléchargement local."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     subtitle: str | None = Field(default=None, max_length=500)
     authors: list[str] | None = None
+    tags: list[str] | None = None
+    genres: list[str] | None = None
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -165,8 +171,26 @@ class BookUpdate(BaseModel):
         return v
 
 
+class StatusUpdate(BaseModel):
+    """POST /books/{id}/status — déplacement rapide entre statuts (§5).
+
+    `finished_at` (ISO) n'a de sens que pour `read` : il crée une
+    `read_entry` correspondante.
+    """
+
+    status: str
+    finished_at: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _check_status(cls, v: str) -> str:
+        if v not in BOOK_STATUSES:
+            raise ValueError(f"status invalide : {v!r}")
+        return v
+
+
 class BookOut(BaseModel):
-    """Réponse `book` : modèle SQLModel + auteurs résolus + URLs locales.
+    """Réponse `book` : modèle SQLModel + auteurs/tags/genres résolus + URLs locales.
 
     `cover_url`/`cover_thumb_url` sont construits depuis `cover_path`
     (chemin relatif au dossier `covers/`), servis par StaticFiles.
@@ -176,6 +200,8 @@ class BookOut(BaseModel):
     title: str
     subtitle: str | None = None
     authors: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    genres: list[str] = Field(default_factory=list)
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -209,3 +235,31 @@ class BookList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------------------------------------------------------------------------
+# TAXONOMIE — auteurs et labels (tags/genres)
+# ---------------------------------------------------------------------------
+
+class AuthorOut(BaseModel):
+    id: int
+    name: str
+    openlibrary_key: str | None = None
+    book_count: int = 0
+
+
+class AuthorBooks(BaseModel):
+    author: AuthorOut
+    books: list[BookOut]
+
+
+class LabelOut(BaseModel):
+    id: int
+    name: str
+    kind: str  # genre | tag
+    book_count: int = 0
+
+
+class LabelList(BaseModel):
+    items: list[LabelOut]
+    total: int
