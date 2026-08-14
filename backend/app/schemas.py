@@ -263,3 +263,142 @@ class LabelOut(BaseModel):
 class LabelList(BaseModel):
     items: list[LabelOut]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# SESSIONS DE LECTURE
+# ---------------------------------------------------------------------------
+
+class ReadingSessionCreate(BaseModel):
+    """Saisie manuelle d'une session (§5). `started_at` ISO (ou date seule).
+
+    `pages_read` est dérivé (`end_page - start_page`) quand les deux pages
+    sont fournies ; sinon il peut être saisi tel quel.
+    """
+
+    started_at: str
+    ended_at: str | None = None
+    duration_sec: int = Field(ge=0)
+    start_page: int | None = Field(default=None, ge=0)
+    end_page: int | None = Field(default=None, ge=0)
+    pages_read: int | None = Field(default=None, ge=0)
+    note: str | None = None
+
+
+class ReadingSessionUpdate(BaseModel):
+    """Mise à jour partielle d'une session."""
+
+    started_at: str | None = None
+    ended_at: str | None = None
+    duration_sec: int | None = Field(default=None, ge=0)
+    start_page: int | None = Field(default=None, ge=0)
+    end_page: int | None = Field(default=None, ge=0)
+    pages_read: int | None = Field(default=None, ge=0)
+    note: str | None = None
+
+
+class ReadingSessionOut(BaseModel):
+    id: int
+    book_id: int
+    started_at: str
+    ended_at: str | None = None
+    duration_sec: int
+    start_page: int | None = None
+    end_page: int | None = None
+    pages_read: int | None = None
+    note: str | None = None
+    source: str  # manual | timer | koreader
+    created_at: str
+
+
+class SessionList(BaseModel):
+    items: list[ReadingSessionOut]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# TIMER (session live)
+# ---------------------------------------------------------------------------
+
+class TimerStart(BaseModel):
+    book_id: int
+
+
+class TimerStop(BaseModel):
+    book_id: int
+    end_page: int = Field(ge=0)
+
+
+# ---------------------------------------------------------------------------
+# LECTURES (read_entry, relectures)
+# ---------------------------------------------------------------------------
+
+class ReadEntryCreate(BaseModel):
+    started_at: str | None = None
+    finished_at: str | None = None
+    rating: float | None = Field(default=None, ge=0.5, le=5.0)
+    review: str | None = None
+
+
+class ReadEntryUpdate(BaseModel):
+    started_at: str | None = None
+    finished_at: str | None = None
+    rating: float | None = Field(default=None, ge=0.5, le=5.0)
+    review: str | None = None
+
+
+class ReadEntryOut(BaseModel):
+    id: int
+    book_id: int
+    started_at: str | None = None
+    finished_at: str | None = None
+    rating: float | None = None
+    review: str | None = None
+    created_at: str
+
+
+class ReadEntryList(BaseModel):
+    items: list[ReadEntryOut]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# STATS / DASHBOARD
+# ---------------------------------------------------------------------------
+
+class StatsOverview(BaseModel):
+    """Totaux du dashboard (§5) : temps total, pages, streak, répartition."""
+
+    total_books: int          # tous livres confondus
+    books_owned: int          # owned = 1
+    books_read: int           # status = read
+    books_reading: int        # status = reading
+    books_tbr: int            # status = tbr
+    books_wishlist: int       # status = wishlist
+    total_sessions: int
+    total_duration_sec: int
+    total_pages_read: int
+    streak_days: int          # jours consécutifs avec ≥ 1 session
+    avg_rating: float | None = None
+
+
+class TimelinePoint(BaseModel):
+    period: str  # "2026-08-14" (jour) | "2026-W33" (semaine) | "2026-08" (mois)
+    duration_sec: int
+    pages_read: int
+    sessions: int
+
+
+class StatsTimeline(BaseModel):
+    points: list[TimelinePoint]
+
+
+class BreakdownItem(BaseModel):
+    label: str  # nom de genre / d'auteur
+    duration_sec: int
+    pages_read: int
+    sessions: int
+
+
+class StatsBreakdown(BaseModel):
+    items: list[BreakdownItem]

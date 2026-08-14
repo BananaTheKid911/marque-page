@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app import config
-from app.routers import books, lookup, taxonomy
+from app.routers import books, lookup, reads, sessions, stats, taxonomy
 
 
 @asynccontextmanager
@@ -21,6 +21,9 @@ app = FastAPI(title="Marque-page", lifespan=lifespan)
 app.include_router(lookup.router, prefix="/api/v1")
 app.include_router(books.router, prefix="/api/v1")
 app.include_router(taxonomy.router, prefix="/api/v1")
+app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(reads.router, prefix="/api/v1")
+app.include_router(stats.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")
