@@ -1,7 +1,9 @@
 # Marque-page — Spec technique de build
 
-> Application de suivi de lecture auto-hébergée (clone fonctionnel de *Book Track*), conçue pour tourner sur Synology DS218+ via Docker.
+> Application de suivi de lecture auto-hébergée (clone fonctionnel de *Book Track*), tournant en Docker sur le **MN56**.
 > Document destiné à être découpé en tâches par des agents de code (OpenCode). Nom de projet provisoire : **Marque-page** (slug : `marquepage`) — à renommer librement.
+
+> ⚠️ **Corrigé le 14/08/2026.** Cette spec a été écrite avant la décision Homelab P2/P3 (« NAS = stockage pur, MN56 = compute Docker ») et décrivait un déploiement sur le Synology DS218+. Les §0, §6, §7, §9 et §10 ont été mis à jour pour décrire la cible réelle. Les §1 à §5 et §8 n'ont pas bougé : ils restent la spécification de vérité pour le schéma, les intégrations, l'algorithme KOReader, l'API et le plan de build.
 
 ---
 
@@ -9,12 +11,13 @@
 
 | Élément | Valeur | Conséquence |
 |---|---|---|
-| NAS | Synology DS218+ (Celeron J3355, **x86_64/amd64**, 2–6 Go RAM) | Builds Docker en `linux/amd64`. Stack **léger obligatoire**. |
-| Déjà hébergé | Plex, Immich, Paperless, Sonarr/Radarr, etc. | Budget RAM serré : viser **< 250 Mo idle** pour l'app. **Interdit** : JVM, MariaDB/MySQL, Postgres. |
-| Conventions Docker | `PUID=1026`, `PGID=100`, bind mounts sous `/volume1/docker/` | à respecter à l'identique. |
-| Réseau | Tailscale + reverse proxy existant | App exposée derrière le proxy, pas de port public en clair. |
+| Hôte | **Firebat MN56** (Ryzen 7 8745HS, **x86_64/amd64**, 16 Go DDR5) | Builds Docker en `linux/amd64`. Stack léger recommandé, mais plus de budget RAM serré. |
+| Déjà hébergé sur le MN56 | Portainer, feader-api, gametracker, OpenCode, OpenChamber | Cohabitation à surveiller sur les **ports**, pas sur la RAM. `mem_limit: 512m` suffit. |
+| Conventions Docker | Bind mounts sous `/home/banserv/docker/<service>/`, pas de `PUID`/`PGID` | Ubuntu Server, pas DSM : les conventions Synology ne s'appliquent pas. |
+| Réseau | Tailscale, **pas de reverse proxy** | Port bindé directement sur l'IP Tailscale `100.68.214.9`. Jamais `0.0.0.0`, jamais `127.0.0.1`. |
+| Stockage | NVMe local du MN56 | ⚠️ **Non couvert par le backup 3-2-1** (qui ne protège que le NAS). Voir le trou de backup P4 du projet Homelab. |
 
-**Verdict faisabilité : OUI**, à condition de respecter le stack léger ci-dessous. Un seul conteneur, SQLite, footprint minimal.
+**Verdict faisabilité : OUI.** Un seul conteneur, SQLite, footprint minimal — le stack léger reste le bon choix, non plus par contrainte matérielle mais par simplicité d'exploitation.
 
 ---
 
@@ -299,72 +302,40 @@ GET    /export                 -> dump JSON complet (sauvegarde)
 9. **Vues filtrées** : par auteur, par tag, par genre.
 10. **Réglages** : import KOReader, import Book Track, sauvegarde/export, seuil d'inactivité des sessions, mot de passe.
 
-### Design system (dark, premium, couverture-first)
-Tokens proposés (réutilise ta palette LPA pour cohérence visuelle si tu veux, sinon swap facile) :
-```css
---bg:        #0a0908;   /* fond */
---surface:   #16140f;
---accent:    #c8a96e;   /* or */
---text:      #ece7df;
---muted:     #8a8275;
---font-display: "Cormorant Garamond", serif;
---font-ui:      "Instrument Sans", system-ui, sans-serif;
-```
-Principes : grilles de couvertures généreuses, ombres douces, transitions discrètes, mobile en bottom-nav (Bibliothèque / Ajouter / PAL / Stats / Réglages), desktop en sidebar.
+### Design system
+
+> ⚠️ **Remplacé le 14/08/2026.** La proposition initiale (fond sombre `#0a0908`, accent or, Cormorant Garamond) a été écartée après maquettage. Elle invoquait « la palette LPA » qui n'existe plus sous cette forme — LPA est passé en clair, bleu marine `#051229`, Inter.
+>
+> **La source de vérité du design system est désormais `AGENTS.md` à la racine.** Ne pas réimplémenter les tokens ci-dessous, ils n'existent plus.
+
+Direction retenue : **papier clair, encre noire, aucune couleur d'accent.** Fond sépia clair de liseuse, typographie serif de lecture, la couleur ne vient que des couvertures. Détail complet des tokens, des trois layouts et des points de rupture dans `AGENTS.md`.
+
+Principes conservés : grilles de couvertures généreuses, ombres douces, transitions discrètes, mobile en bottom-nav (Bibliothèque / PAL / Ajouter / Stats / Réglages).
 
 ---
 
-## 7. Déploiement Docker (DS218+)
+## 7. Déploiement Docker (MN56)
 
-### Dockerfile (multi-stage, amd64)
-```dockerfile
-# --- build front ---
-FROM node:20-slim AS web
-WORKDIR /web
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build              # -> /web/dist
+> ⚠️ **Réécrit le 14/08/2026.** Les fichiers réels du repo — `Dockerfile` et `docker-compose.yml` à la racine — **font foi**. Cette section les décrit, elle ne les remplace pas : en cas de divergence, corriger cette section, pas les fichiers.
 
-# --- runtime ---
-FROM python:3.12-slim
-WORKDIR /app
-RUN pip install --no-cache-dir uv
-COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev
-COPY backend/ ./
-COPY --from=web /web/dist ./static
-ENV PUID=1026 PGID=100 TZ=Europe/Paris
-EXPOSE 8000
-CMD ["uv","run","uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
-```
+Ce que le déploiement réel change par rapport à la version Synology :
 
-### docker-compose.yml
-```yaml
-services:
-  marquepage:
-    build:
-      context: .
-      platforms: ["linux/amd64"]
-    image: marquepage:latest
-    container_name: marquepage
-    restart: unless-stopped
-    ports:
-      - "8123:8000"                # à mapper derrière ton reverse proxy
-    environment:
-      - PUID=1026
-      - PGID=100
-      - TZ=Europe/Paris
-      - APP_PASSWORD=change_me
-      - SESSION_GAP_SEC=900
-    volumes:
-      - /volume1/docker/marquepage/data:/app/data        # SQLite + WAL
-      - /volume1/docker/marquepage/covers:/app/covers
-      - /volume1/docker/marquepage/koreader-inbox:/app/inbox  # dossier surveillé (optionnel)
-    mem_limit: 384m              # garde-fou pour protéger le NAS
-    cpus: 1.0
-```
-Notes : build en `linux/amd64` (le DS218+ est x86_64) ; `mem_limit` pour ne pas étouffer Plex/Immich ; Watchtower OK si tu publies l'image, sinon rebuild manuel.
+| Point | Version Synology (abandonnée) | Version MN56 (réelle) |
+|---|---|---|
+| Bind du port | `"8123:8000"` derrière un reverse proxy | `"100.68.214.9:8123:8000"` — IP Tailscale directe, pas de proxy |
+| Volumes | `/volume1/docker/marquepage/` | `/home/banserv/docker/marquepage/` |
+| `PUID`/`PGID` | `1026` / `100` | **aucun** — convention DSM, sans objet sur Ubuntu |
+| `mem_limit` | `384m` (protéger Plex/Immich) | `512m` |
+| Node du build front | `node:20-slim` | `node:24-slim` |
+| `platforms:` | `["linux/amd64"]` explicite | inutile — le MN56 *est* amd64, on build en natif |
+
+**La règle de bind, à ne jamais confondre :**
+- Côté **hôte** (`ports:` du compose) → `100.68.214.9`. Ni `0.0.0.0` (exposition publique), ni `127.0.0.1` (le téléphone et la tablette perdraient l'accès via le tailnet).
+- Côté **conteneur** (`--host` d'uvicorn) → `0.0.0.0` est correct et nécessaire, sinon le mapping de port ne route rien. L'isolation vient de l'hôte.
+
+**Volume `inbox` (dossier surveillé KOReader)** : prévu au §4.4, pas encore monté. À ajouter en Phase 6 sous `/home/banserv/docker/marquepage/koreader-inbox`.
+
+**Variables d'environnement** : `APP_PASSWORD` et `SESSION_GAP_SEC` sont documentées dans `.env.example` mais **pas encore branchées** dans le compose — l'application ne les lit pas avant la Phase 1. Les câbler au moment où le code s'en sert, pas avant : un `env_file:` pointant vers un `.env` absent fait échouer `docker compose up`.
 
 ---
 
@@ -406,8 +377,8 @@ Notes : build en `linux/amd64` (le DS218+ est x86_64) ; `mem_limit` pour ne pas 
 
 | Besoin exprimé | Couvert par |
 |---|---|
-| Héberger sur NAS Docker | §7 (image amd64, conventions Synology) |
-| Design moderne | §6 (design system dark, couverture-first) |
+| Héberger en Docker auto-hébergé | §7 (MN56, bind Tailscale) — le NAS est du stockage pur depuis P2/P3 |
+| Design moderne | `AGENTS.md` (papier clair, couverture-first) |
 | Ajout par ISBN ou manuel | §3, API `/lookup`, `/books` |
 | Scrap auto des couvertures + variantes | §3 (Open Library editions + Google Books, sélecteur) |
 | Durée des sessions de lecture | §2 `reading_session.duration_sec`, §6 timer |
@@ -422,11 +393,16 @@ Notes : build en `linux/amd64` (le DS218+ est x86_64) ; `mem_limit` pour ne pas 
 
 ---
 
-## 10. Découpage suggéré pour tes agents OpenCode
+## 10. Agents — répartition réelle
 
-- `python-dev` : modèle de données, migrations, parsers (KOReader, Book Track), API FastAPI, tests pytest.
-- `seo-technique` / generic : intégrations externes (Open Library, Google Books), watcher dossier.
-- `css-ui` : design system, composants shadcn, pages, PWA, scan ISBN.
-- Fichier `AGENTS.md`/`CLAUDE.md` racine : rappeler les contraintes (amd64, SQLite only, mem_limit, PUID/PGID, pas de hotlink de couverture).
+> ⚠️ **Remplacé le 14/08/2026.** Le découpage suggéré ici renvoyait aux agents globaux `python-dev`, `seo-technique` et `css-ui`. Ces agents existent bien, mais ils sont écrits pour le stack **affi-build** (scrapers SEO, exports GSC, overrides GeneratePress) : leur périmètre n'a rien à voir avec cette app. Trois agents dédiés ont été créés à la place.
 
-> Conseil d'enchaînement : faire valider chaque phase (critères §8) avant de lancer la suivante, comme tu fais déjà en itératif.
+| Agent | Outil | Fichier | Périmètre |
+|---|---|---|---|
+| `backend-dev` | OpenCode | `.opencode/agent/backend-dev.md` | SQLModel, Alembic, API FastAPI, intégrations Open Library / Google Books, parsers KOReader et Book Track, pytest, Docker |
+| `frontend-dev` | OpenCode | `.opencode/agent/frontend-dev.md` | React/TS : état, routing, client API, formulaires, PWA, zxing. **Pas le visuel.** |
+| `design-ui` | Claude Code | `.claude/agents/design-ui.md` | Design system, composants, layouts, accessibilité. Épinglé sur Sonnet 5. |
+
+**Le gate design traverse les deux outils** : toute tâche visuelle qui arrive côté OpenCode doit être renvoyée vers Claude Code, jamais implémentée sur place. Détail dans `AGENTS.md`.
+
+> Conseil d'enchaînement inchangé : faire valider chaque phase (critères §8) avant de lancer la suivante.
