@@ -158,6 +158,25 @@ class TestTimer:
         assert stop.status_code == 200
         assert stop.json()["id"] == s["id"]
 
+    def test_timer_start_promotes_tbr_to_reading(self, client):
+        """Chemin automatique n°1 (décision produit 15/08) : démarrer une
+        session in-app fait quitter la Pile à lire au livre."""
+        book = _make_book(client)  # status par défaut : tbr
+        resp = client.post("/api/v1/timer/start", json={"book_id": book["id"]})
+        assert resp.status_code == 201
+        book2 = client.get(f"/api/v1/books/{book['id']}").json()
+        assert book2["status"] == "reading"
+
+    def test_timer_start_keeps_non_tbr_status(self, client):
+        """Seul `tbr` est promu automatiquement : un livre en pause reste
+        `on_hold` (la reprise depuis `on_hold` est un chemin manuel)."""
+        book = _make_book(client)
+        client.patch(f"/api/v1/books/{book['id']}", json={"status": "on_hold"})
+        resp = client.post("/api/v1/timer/start", json={"book_id": book["id"]})
+        assert resp.status_code == 201
+        book2 = client.get(f"/api/v1/books/{book['id']}").json()
+        assert book2["status"] == "on_hold"
+
 
 class TestReads:
     def test_create_read_with_rating_syncs_book(self, client):

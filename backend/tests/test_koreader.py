@@ -320,6 +320,54 @@ class TestConfirm:
         })
         assert resp.status_code == 404  # jamais une erreur de chemin
 
+    def test_import_promotes_tbr_to_reading(self, client, tmp_path):
+        """Chemin automatique n°2 (décision produit 15/08) : un import
+        apportant des sessions pour un livre encore `tbr` le passe en
+        lecture."""
+        book = _make_book(client, koreader_md5="md5dune")  # status par défaut : tbr
+        path = tmp_path / "stats.sqlite3"
+        _write_stats(
+            path,
+            books=[(1, "Dune", "Frank Herbert", "md5dune")],
+            rows=[(1, 10, T0 + 0, 120, 400)],
+        )
+        import_id = _upload(client, path).json()["import_id"]
+        confirm = client.post("/api/v1/koreader/import/confirm", json={
+            "import_id": import_id, "mappings": [],
+        })
+        assert confirm.status_code == 200, confirm.text
+        assert confirm.json()["sessions_added"] == 1
+        assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "reading"
+
+    def test_reimport_does_not_flip_tbr_status(self, client, tmp_path):
+        """Idempotence : re-importer le même fichier n'ajoute aucune session
+        — et ne doit donc pas rebasculer un livre remis dans la Pile."""
+        book = _make_book(client, koreader_md5="md5dune")
+        path = tmp_path / "stats.sqlite3"
+        _write_stats(
+            path,
+            books=[(1, "Dune", "Frank Herbert", "md5dune")],
+            rows=[(1, 10, T0 + 0, 120, 400)],
+        )
+        first = _upload(client, path).json()
+        client.post("/api/v1/koreader/import/confirm", json={
+            "import_id": first["import_id"], "mappings": [],
+        })
+        assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "reading"
+
+        # L'utilisateur remet le livre dans la Pile à lire…
+        client.post(f"/api/v1/books/{book['id']}/status", json={"status": "tbr"})
+
+        # … puis re-importe le même fichier : tout est déjà présent,
+        # le statut tbr doit rester intact.
+        second = _upload(client, path).json()
+        assert second["sessions_to_import"] == 0
+        confirm = client.post("/api/v1/koreader/import/confirm", json={
+            "import_id": second["import_id"], "mappings": [],
+        }).json()
+        assert confirm["sessions_added"] == 0
+        assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "tbr"
+
     def test_confirm_consumes_pending_file(self, client, tmp_path):
         path = tmp_path / "stats.sqlite3"
         _write_stats(path, books=[(1, "Dune", "", None)], rows=[])

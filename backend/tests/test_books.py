@@ -255,6 +255,83 @@ class TestUpdateBook:
         assert client.patch("/api/v1/books/9999", json={"title": "X"}).status_code == 404
 
 
+class TestStatusTransitions:
+    """Transition `tbr` -> `reading` par le chemin MANUEL (décision produit
+    15/08 — les chemins automatiques timer/KOReader ont leurs propres tests
+    dans test_sessions.py et test_koreader.py), et cohérence des états
+    dépendant du statut : quitter la Pile libère `tbr_rank`, cesser d'être
+    `reading` libère `is_primary_reading`."""
+
+    def _set_rank(self, db_engine, book_id, rank, note):
+        from app.models import Book
+        from sqlmodel import Session
+
+        with Session(db_engine) as s:
+            b = s.get(Book, book_id)
+            b.tbr_rank = rank
+            b.tbr_note = note
+            s.commit()
+
+    def _book_state(self, db_engine, book_id):
+        from app.models import Book
+        from sqlmodel import Session
+
+        with Session(db_engine) as s:
+            b = s.get(Book, book_id)
+            return b.status, b.tbr_rank, b.tbr_note, b.is_primary_reading
+
+    def test_manual_reading_via_status_endpoint(self, client):
+        book = client.post("/api/v1/books", json={"title": "Dune"}).json()
+        assert book["status"] == "tbr"
+
+        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "reading"
+        assert resp.json()["owned"] == 1
+
+    def test_leaving_tbr_frees_rank_keeps_note(self, client, db_engine):
+        """Quitter la Pile libère le rang (l'ordre n'a de sens que dans la
+        liste) mais conserve la note (texte saisi, jamais effacé)."""
+        book = client.post("/api/v1/books", json={"title": "Dune"}).json()
+        self._set_rank(db_engine, book["id"], 2, "à lire avant la série TV")
+
+        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        assert resp.status_code == 200
+        status, rank, note, _ = self._book_state(db_engine, book["id"])
+        assert status == "reading"
+        assert rank is None
+        assert note == "à lire avant la série TV"
+
+    def test_patch_status_leaving_tbr_frees_rank(self, client, db_engine):
+        """Le PATCH peut aussi changer le statut : les mêmes règles
+        s'appliquent (books.py `_apply_status_rules` est partagé)."""
+        book = client.post("/api/v1/books", json={"title": "Dune"}).json()
+        self._set_rank(db_engine, book["id"], 5, None)
+
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"status": "reading"})
+        assert resp.status_code == 200
+        _, rank, _, _ = self._book_state(db_engine, book["id"])
+        assert rank is None
+
+    def test_leaving_reading_frees_primary_flag(self, client, db_engine):
+        """Cesser d'être `reading` libère `is_primary_reading` — l'index
+        partiel unique exigerait de toute façon un seul flag actif."""
+        from app.models import Book
+        from sqlmodel import Session
+
+        book = client.post("/api/v1/books", json={"title": "Dune"}).json()
+        client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        with Session(db_engine) as s:
+            b = s.get(Book, book["id"])
+            b.is_primary_reading = 1
+            s.commit()
+
+        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "read"})
+        assert resp.status_code == 200
+        _, _, _, primary = self._book_state(db_engine, book["id"])
+        assert primary == 0
+
+
 class TestDeleteBook:
     def test_delete(self, client):
         book = client.post("/api/v1/books", json={"title": "À jeter"}).json()

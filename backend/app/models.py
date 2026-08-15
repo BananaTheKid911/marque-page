@@ -11,7 +11,7 @@ défaut d'AutoString, pour rester conforme à la lettre du DDL.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Index, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Numeric, Text, UniqueConstraint
 # Importé sous un autre nom : le champ `text` de Highlight masquerait
 # l'import au sein du corps de classe.
 from sqlalchemy import text as sqltext
@@ -30,6 +30,14 @@ class Book(SQLModel, table=True):
     __table_args__ = (
         Index("idx_book_status", "status"),
         Index("idx_book_koreader_md5", "koreader_md5"),
+        # Exclusivité du livre « en cours » : au plus un livre `reading`
+        # porte `is_primary_reading = 1` à la fois (décision produit 15/08).
+        Index(
+            "uq_book_primary_reading",
+            "is_primary_reading",
+            unique=True,
+            sqlite_where=sqltext("status = 'reading' AND is_primary_reading = 1"),
+        ),
         {"sqlite_autoincrement": True},
     )
 
@@ -65,6 +73,28 @@ class Book(SQLModel, table=True):
         sa_column_kwargs={"server_default": sqltext("0")},
     )
     acquired_date: str | None = Field(default=None, sa_type=Text)
+    # Série (décision produit 15/08) : `series_index` autorise les décimales
+    # (1.5 pour un hors-série). NULL = le livre n'appartient à aucune série.
+    series_id: int | None = Field(
+        default=None, foreign_key="series.id", ondelete="SET NULL"
+    )
+    series_index: float | None = Field(default=None, sa_type=Numeric(5, 2))
+    # Prix payé / date d'achat : un seul champ chacun, jamais remplis pour un
+    # livre en wishlist (le prix y serait « constaté », pas « payé »).
+    price_paid: float | None = None
+    purchased_at: str | None = Field(default=None, sa_type=Text)
+    # Livre « en cours » principal : flag exclusif parmi les livres `reading`
+    # (contrainte au niveau base : index partiel unique ci-dessus). Désigné
+    # manuellement, jamais automatiquement (décision produit 15/08).
+    is_primary_reading: int = Field(
+        default=0,
+        sa_column_kwargs={"server_default": sqltext("0")},
+    )
+    # Pile à lire = sélection curatée distincte du filtre `status='tbr'` :
+    # `tbr_rank` porte l'ordre (1 = prochain lu), `tbr_note` le motif
+    # optionnel. Non renseignés hors de la Pile à lire.
+    tbr_rank: int | None = None
+    tbr_note: str | None = Field(default=None, sa_type=Text)
     # IDs externes pour ré-enrichissement
     openlibrary_work: str | None = Field(default=None, sa_type=Text)
     openlibrary_edition: str | None = Field(default=None, sa_type=Text)
@@ -73,6 +103,47 @@ class Book(SQLModel, table=True):
     notes: str | None = Field(default=None, sa_type=Text)  # avis perso / review
     created_at: str = Field(default_factory=_utcnow_iso, sa_type=Text)
     updated_at: str = Field(default_factory=_utcnow_iso, sa_type=Text)
+
+
+# ---------------------------------------------------------------------------
+# SÉRIES
+# ---------------------------------------------------------------------------
+class Series(SQLModel, table=True):
+    __tablename__ = "series"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, sa_type=Text)
+
+
+# ---------------------------------------------------------------------------
+# FORMATS × POSSESSION (décision produit 15/08)
+# ---------------------------------------------------------------------------
+class BookFormat(SQLModel, table=True):
+    """Format d'un livre (physique | digital | audio), non exclusif, avec
+    possession PAR format — un livre peut avoir le papier acheté et la
+    version numérique simplement empruntée (d'où deux lignes : owned 1 et 0).
+
+    Le champ `format` masque le builtin Python dans le corps de classe —
+    accepté, comme `text` sur Highlight.
+    """
+
+    __tablename__ = "book_format"
+    __table_args__ = (
+        CheckConstraint(
+            "format IN ('physique', 'digital', 'audio')",
+            name="ck_book_format_type",
+        ),
+    )
+
+    book_id: int = Field(
+        default=None, primary_key=True, foreign_key="book.id", ondelete="CASCADE"
+    )
+    format: str = Field(default=None, primary_key=True, sa_type=Text)
+    owned: int = Field(
+        default=0,
+        sa_column_kwargs={"server_default": sqltext("0")},
+    )  # 0 = consulté sans achat (emprunt…) ; 1 = possédé
 
 
 # ---------------------------------------------------------------------------

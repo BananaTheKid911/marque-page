@@ -31,7 +31,7 @@ from sqlmodel import Session, select
 from app import config
 from app.db import get_session, unaccent
 from app.models import Author, Book, BookAuthor, KoreaderImport, ReadingSession
-from app.routers.sessions import sync_book_progress
+from app.routers.sessions import mark_started_reading, sync_book_progress
 from app.schemas import (
     KoreaderBookPreview,
     KoreaderCandidate,
@@ -328,6 +328,11 @@ def confirm_import(
                 )
             )
             sessions_added += 1
+            # Chemin automatique n°2 vers `reading` (décision produit 15/08) :
+            # un import apportant des sessions pour un livre encore `tbr` le
+            # fait passer en lecture. Uniquement si des sessions NOUVELLES
+            # sont ajoutées : re-importer le même fichier ne rebascule rien.
+            mark_started_reading(book_app)
         sync_book_progress(session, book_app)
 
     books_matched = len(linked_book_ids)

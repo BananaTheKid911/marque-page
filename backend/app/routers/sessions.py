@@ -59,6 +59,27 @@ def sync_book_progress(session: Session, book: Book) -> None:
     session.add(book)
 
 
+def mark_started_reading(book: Book) -> None:
+    """Transition automatique `tbr` -> `reading` (décision produit 15/08).
+
+    Un livre quitte la Pile à lire dès qu'une lecture réelle commence, par
+    deux des trois chemins : session timer (`POST /timer/start`) et import
+    KOReader apportant des sessions (§4.2). Le troisième chemin — l'action
+    manuelle du front — passe par `POST /books/{id}/status`, géré dans
+    books.py.
+
+    Le rang est libéré (il n'a de sens que dans la liste) ; `tbr_note` est
+    conservée : c'est un texte saisi par l'utilisateur, jamais effacé
+    implicitement. La désignation du livre « en cours » principal reste
+    manuelle (cette transition ne touche pas `is_primary_reading`), et
+    `on_hold` n'est volontairement pas traité ici — seul le chemin manuel
+    le reprend. L'appelant commit.
+    """
+    if book.status == "tbr":
+        book.status = "reading"
+        book.tbr_rank = None
+
+
 def _session_out(s: ReadingSession) -> ReadingSessionOut:
     return ReadingSessionOut.model_validate(s.model_dump())
 
@@ -208,6 +229,9 @@ def timer_start(
         source="timer",
     )
     session.add(reading_session)
+    # Chemin automatique n°1 vers `reading` (décision produit 15/08) :
+    # démarrer une session in-app fait quitter la Pile à lire au livre.
+    mark_started_reading(book)
     session.commit()
     session.refresh(reading_session)
     return _session_out(reading_session)

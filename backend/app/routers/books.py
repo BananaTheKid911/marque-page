@@ -87,9 +87,24 @@ def _book_out(book: Book, authors: list[str] | None = None,
     return out
 
 
-def _apply_status_rules(book: Book) -> None:
-    """§2 : wishlist => non possédé ; tout autre statut => possédé."""
+def _apply_status_rules(book: Book, prev_status: str | None = None) -> None:
+    """§2 : wishlist => non possédé ; tout autre statut => possédé.
+
+    Cohérence des états dépendant du statut (décisions produit 15/08) :
+    - quitter la Pile à lire (`tbr` -> autre chose) libère `tbr_rank` — le
+      rang n'a de sens que dans la liste ; `tbr_note` est conservée (texte
+      saisi par l'utilisateur, jamais effacé implicitement).
+    - cesser d'être `reading` libère `is_primary_reading` — le flag n'a de
+      sens que pour un livre en cours, et l'index partiel unique
+      `uq_book_primary_reading` l'exigerait de toute façon au retour.
+    Sur création, `prev_status` est None : aucune transition n'existe.
+    """
     book.owned = 0 if book.status == "wishlist" else 1
+    if prev_status is not None and prev_status != book.status:
+        if prev_status == "tbr" and book.status != "tbr":
+            book.tbr_rank = None
+        if prev_status == "reading" and book.status != "reading":
+            book.is_primary_reading = 0
 
 
 def _recompute_percent(book: Book) -> None:
@@ -333,10 +348,11 @@ async def update_book(
     data = payload.model_dump(
         exclude_unset=True, exclude={"authors", "tags", "genres", "cover_url"}
     )
+    prev_status = book.status  # avant application du payload : règles de transition
     for field, value in data.items():
         setattr(book, field, value)
 
-    _apply_status_rules(book)
+    _apply_status_rules(book, prev_status)
     _recompute_percent(book)
 
     if payload.authors is not None:
@@ -386,14 +402,17 @@ def set_status(
 
     `status=read` avec `finished_at` crée une `read_entry` (la date de fin
     appartient à la lecture). `status=wishlist` force `owned=0` et
-    inversement (§2).
+    inversement (§2). C'est le chemin MANUEL de la transition
+    `tbr` -> `reading` (les deux chemins automatiques sont le timer et
+    l'import KOReader, cf. sessions.mark_started_reading).
     """
     book = session.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Livre introuvable")
 
+    prev_status = book.status
     book.status = payload.status
-    _apply_status_rules(book)
+    _apply_status_rules(book, prev_status)
     session.add(book)
 
     if payload.status == "read":
