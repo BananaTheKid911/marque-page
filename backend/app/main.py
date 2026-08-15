@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
-from app.routers import books, highlights, koreader, lookup, reads, sessions, stats, taxonomy
+from app.routers import backup, books, highlights, koreader, lookup, reads, sessions, stats, taxonomy
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.include_router(reads.router, prefix="/api/v1")
 app.include_router(highlights.router, prefix="/api/v1")
 app.include_router(koreader.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
+app.include_router(backup.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")
@@ -42,12 +43,12 @@ app.mount("/covers", StaticFiles(directory=config.COVERS_DIR), name="covers")
 # /koreader/import et /koreader/import/confirm).
 config.KOREADER_PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
-# Le front (build statique) est servi en catch-all SPA. Les routes API et
+# Le front (build statique) est servi en catch-all SPA : les routes API et
 # /covers sont enregistrées AVANT et gagnent toujours ; tout autre chemin
-# sert le fichier réel s'il existe, sinon index.html — pour que les routes
-# react-router (`/livres/5`, `/pile-a-lire`) survivent à un rechargement
-# d'onglet. NOTE frontend-dev : `html=True` de StaticFiles ne couvrait que
-# la racine ; modifié pour servir le SPA complet (à valider par backend-dev).
+# sert le fichier réel s'il existe, sinon index.html. Sans ça, les routes
+# react-router (`/livres/5`, `/pile-a-lire`) répondraient 404 au
+# rechargement d'onglet — `StaticFiles(html=True)` ne sert la racine que
+# pour « / ». Verrouillé par tests/test_spa.py.
 static_dir = Path(__file__).resolve().parent.parent / "static"
 
 

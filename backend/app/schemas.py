@@ -353,6 +353,26 @@ class BookList(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# SAUVEGARDE — export / restauration
+# ---------------------------------------------------------------------------
+
+class RestoreResult(BaseModel):
+    """Résumé de `POST /import` — restauration d'un backup `GET /export`.
+
+    `exported_at` provient du JSON restauré (pour l'affichage « restauré
+    depuis le backup du … ») ; les compteurs portent ce qui a été réinséré.
+    """
+
+    exported_at: str | None = None
+    books: int = 0
+    sessions: int = 0
+    highlights: int = 0
+    reads: int = 0
+    series: int = 0
+    covers_written: int = 0
+
+
+# ---------------------------------------------------------------------------
 # TAXONOMIE — auteurs et labels (tags/genres)
 # ---------------------------------------------------------------------------
 
