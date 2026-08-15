@@ -124,6 +124,9 @@ export function BookDetailPage() {
 
   const [busy, setBusy] = useState(false)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  // Panneau de fin de session (SessionEndControl) : ouvert par le clic sur
+  // "Arrêter le chrono", remplace le window.prompt natif.
+  const [endSessionOpen, setEndSessionOpen] = useState(false)
 
   async function runMutation(action: () => Promise<unknown>) {
     setBusy(true)
@@ -149,16 +152,25 @@ export function BookDetailPage() {
     })
   }
 
-  function handleStopSession() {
+  function handleRequestEndSession() {
     if (busy || !book) return
-    // TODO design-ui : un vrai contrôle de fin de session (saisie de page)
-    // remplacerait ce prompt natif — à dessiner avec l'écran timer.
-    const raw = window.prompt("Page atteinte à la fin de cette session ?", String(book.currentPage))
-    const endPage = raw == null ? book.currentPage : Math.max(0, Number.parseInt(raw, 10) || 0)
+    setEndSessionOpen(true)
+  }
+
+  function handleCancelEndSession() {
+    // Annuler ne doit rien envoyer au serveur : contrairement à l'ancien
+    // window.prompt (qui renvoyait book.currentPage inchangé sur Échap),
+    // fermer le panneau sans valider ne modifie rien côté backend.
+    setEndSessionOpen(false)
+  }
+
+  function handleConfirmEndSession(endPage: number) {
+    if (busy || !book) return
     void runMutation(async () => {
       await stopTimer(id, endPage)
       clearStoredTimer()
       setActiveTimer(null)
+      setEndSessionOpen(false)
     })
   }
 
@@ -233,10 +245,13 @@ export function BookDetailPage() {
         busy={busy}
         error={mutationError}
         onStartSession={handleStartSession}
-        onStopSession={handleStopSession}
         onMarkReading={handleMarkReading}
         onTogglePrimary={handleTogglePrimary}
         onMarkRead={handleMarkRead}
+        endSessionOpen={endSessionOpen}
+        onRequestEndSession={handleRequestEndSession}
+        onConfirmEndSession={handleConfirmEndSession}
+        onCancelEndSession={handleCancelEndSession}
       />
 
       <div className="flex flex-col gap-8 @min-[700px]:grid @min-[700px]:grid-cols-[minmax(0,1fr)_260px] @min-[700px]:items-start @min-[700px]:gap-8">

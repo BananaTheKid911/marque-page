@@ -5,6 +5,9 @@ import { BookDetailPage } from "@/pages/BookDetailPage"
 import { ToReadPage } from "@/pages/ToReadPage"
 import { WishlistPage } from "@/pages/WishlistPage"
 import { SettingsPage } from "@/pages/SettingsPage"
+import { AddBookPage } from "@/pages/AddBookPage"
+import { StatsPage } from "@/pages/StatsPage"
+import { KoreaderImportPage } from "@/pages/KoreaderImportPage"
 import { PlaceholderPage } from "@/pages/PlaceholderPage"
 import type { NavItem } from "@/types/book"
 
@@ -52,24 +55,9 @@ function App() {
         <Route path="livres/:bookId" element={<BookDetailPage />} />
         <Route path="wishlist" element={<WishlistPage />} />
         <Route path="reglages" element={<SettingsPage />} />
-        <Route
-          path="ajouter"
-          element={
-            <PlaceholderPage
-              title="Ajouter un livre"
-              description="Écran de création (recherche ISBN / saisie manuelle) pas encore dessiné."
-            />
-          }
-        />
-        <Route
-          path="stats"
-          element={
-            <PlaceholderPage
-              title="Statistiques"
-              description="Écran de statistiques pas encore dessiné."
-            />
-          }
-        />
+        <Route path="reglages/import-koreader" element={<KoreaderImportPage />} />
+        <Route path="ajouter" element={<AddBookPage />} />
+        <Route path="stats" element={<StatsPage />} />
         <Route
           path="*"
           element={

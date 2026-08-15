@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -70,20 +71,20 @@ export function SettingsPage() {
         description="Upload manuel du fichier statistics.sqlite3 — l'app propose un aperçu des sessions et highlights avant confirmation."
       >
         <SettingsRow label="Importer un fichier statistics.sqlite3">
-          <Button variant="outline" size="default" className="rounded-[3px]">
-            Choisir un fichier
+          <Button asChild variant="outline" size="default" className="rounded-[3px]">
+            <Link to="/reglages/import-koreader">Choisir un fichier</Link>
           </Button>
         </SettingsRow>
         <SettingsRow
           label="Dernier import"
           hint={`${formatDateLong("2026-08-12T19:20:00")} — 2 livres non rattachés à confirmer`}
         >
-          <a
-            href="/reglages/koreader-non-rattaches"
+          <Link
+            to="/reglages/import-koreader"
             className="text-[13px] font-medium text-ink underline underline-offset-2"
           >
             Rattacher
-          </a>
+          </Link>
         </SettingsRow>
       </SettingsSection>
 

@@ -6,6 +6,7 @@ import { extractYear, formatAuthors, formatClock, formatDateLong, formatPrice } 
 import { STATUS_LABELS } from "@/lib/constants"
 import { SeriesTomes } from "./SeriesTomes"
 import { FormatBadges } from "./FormatBadges"
+import { SessionEndControl } from "./SessionEndControl"
 import type { Book } from "@/types/book"
 
 /** État du chrono de session, tel que consommé par le bouton primaire. */
@@ -24,10 +25,20 @@ interface BookHeroProps {
   /** message d'erreur de la dernière mutation, affiché près des actions */
   error?: string | null
   onStartSession?: () => void
-  onStopSession?: () => void
   onMarkReading?: () => void
   onTogglePrimary?: () => void
   onMarkRead?: () => void
+  /**
+   * Le clic sur "Arrêter le chrono" ouvre `SessionEndControl` à la place du
+   * bouton (AGENTS.md : masse noire unique, elle se déplace du déclencheur
+   * au bouton de confirmation) plutôt que d'appeler `onStopSession`
+   * directement. `endSessionOpen` est piloté par le parent pour survivre
+   * à un re-render sans état local dupliqué.
+   */
+  endSessionOpen?: boolean
+  onRequestEndSession?: () => void
+  onConfirmEndSession?: (endPage: number) => void
+  onCancelEndSession?: () => void
 }
 
 /**
@@ -49,10 +60,13 @@ export function BookHero({
   busy = false,
   error = null,
   onStartSession,
-  onStopSession,
   onMarkReading,
   onTogglePrimary,
   onMarkRead,
+  endSessionOpen = false,
+  onRequestEndSession,
+  onConfirmEndSession,
+  onCancelEndSession,
 }: BookHeroProps) {
   const showCaption = book.status === "dnf" || book.status === "on_hold" || book.status === "wishlist"
   const canStartSession = book.status === "reading" || book.status === "tbr" || book.status === "on_hold"
@@ -149,8 +163,21 @@ export function BookHero({
         )}
 
         <div className="mt-1 flex flex-wrap gap-2">
-          {timer?.running ? (
-            <Button size="lg" className="h-11 rounded-[3px] px-5 text-[15px]" onClick={onStopSession} disabled={busy}>
+          {timer?.running && endSessionOpen ? (
+            <SessionEndControl
+              currentPage={book.currentPage}
+              totalPages={book.pageCount}
+              busy={busy}
+              onConfirm={(endPage) => onConfirmEndSession?.(endPage)}
+              onCancel={() => onCancelEndSession?.()}
+            />
+          ) : timer?.running ? (
+            <Button
+              size="lg"
+              className="h-11 rounded-[3px] px-5 text-[15px]"
+              onClick={onRequestEndSession}
+              disabled={busy}
+            >
               <Play className="h-4 w-4 fill-current" aria-hidden="true" />
               Arrêter le chrono {formatClock(timer.elapsedSec)}
             </Button>
