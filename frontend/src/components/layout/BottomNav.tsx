@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import type { NavItem } from "@/types/book"
 import { NAV_ICONS } from "./nav-icons"
@@ -26,21 +27,21 @@ export function BottomNav({ items, activeKey }: BottomNavProps) {
           if (isAdd) {
             return (
               <li key={item.key} className="flex flex-1 items-center justify-center">
-                <a
-                  href={item.href}
+                <Link
+                  to={item.href}
                   aria-label={item.label}
                   className="-mt-3 flex h-11 w-11 items-center justify-center rounded-[3px] bg-ink text-paper shadow-cover transition-transform active:translate-y-px"
                 >
                   <Icon className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
-                </a>
+                </Link>
               </li>
             )
           }
 
           return (
             <li key={item.key} className="flex flex-1 justify-center">
-              <a
-                href={item.href}
+              <Link
+                to={item.href}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent px-2 pt-1.5 text-[11px] leading-none",
@@ -49,7 +50,7 @@ export function BottomNav({ items, activeKey }: BottomNavProps) {
               >
                 <Icon className="h-5 w-5" strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
                 <span>{item.label}</span>
-              </a>
+              </Link>
             </li>
           )
         })}

@@ -1,10 +1,20 @@
-import { Play } from "lucide-react"
+import { Link } from "react-router-dom"
+import { ArrowRight, BookOpen, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import { formatAuthors, formatDuration, formatPercent } from "@/lib/format"
 import type { CurrentlyReading } from "@/types/book"
 
 interface CurrentlyReadingCardProps {
-  data: CurrentlyReading
+  /**
+   * `null` quand aucun livre `reading` n'a été désigné manuellement comme
+   * lecture principale (décision produit du 15/08/2026 : jamais de
+   * fallback automatique — voir BookHero.tsx pour le geste "Définir comme
+   * livre principal"). Les deux variantes dessinent alors un état vide
+   * invitant à choisir dans la Pile à lire, plutôt que de se masquer ou
+   * d'afficher un livre non choisi.
+   */
+  data: CurrentlyReading | null
   /**
    * "banner" : bandeau en tête de bibliothèque, mobile (< 700px).
    * "card"   : carte latérale fixe, >= 700px (280px) et >= 1200px
@@ -27,6 +37,10 @@ export function CurrentlyReadingCard({
   variant,
   className,
 }: CurrentlyReadingCardProps) {
+  if (data === null) {
+    return <EmptyCurrentlyReading variant={variant} className={className} />
+  }
+
   const { book, lastSessionDurationSec, sessionCount } = data
   const percent = formatPercent(book.currentPercent)
 
@@ -49,8 +63,8 @@ export function CurrentlyReadingCard({
   )
 
   const resumeButton = (
-    <a
-      href={`/livres/${book.id}`}
+    <Link
+      to={`/livres/${book.id}`}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-[3px] bg-ink text-paper transition-transform active:translate-y-px",
         variant === "banner"
@@ -60,7 +74,7 @@ export function CurrentlyReadingCard({
     >
       <Play className="h-4 w-4 fill-current" aria-hidden="true" />
       Reprendre
-    </a>
+    </Link>
   )
 
   if (variant === "banner") {
@@ -151,6 +165,95 @@ export function CurrentlyReadingCard({
       </dl>
 
       {resumeButton}
+    </section>
+  )
+}
+
+/**
+ * État vide des deux formes du composant — aucun livre `reading` désigné
+ * comme lecture principale. Un des écrans "sans couverture" cités par
+ * AGENTS.md : la place normalement occupée par la couverture devient un
+ * cadre à trait fin (border-line-2, jamais de remplissage) plutôt que de
+ * disparaître, pour que la carte garde la même silhouette dans les deux
+ * états et ne "saute" pas visuellement une fois un livre choisi.
+ *
+ * Le bouton d'encre occupe exactement le rôle et l'emplacement de
+ * "Reprendre" dans l'état rempli — ce n'est pas une deuxième masse noire
+ * ajoutée à l'écran, c'est le même emplacement qui change de texte selon
+ * l'état (AGENTS.md : un seul bouton d'encre par écran). La nav basse/du
+ * haut a son propre bouton "Ajouter", indépendant de celui-ci.
+ */
+function EmptyCurrentlyReading({
+  variant,
+  className,
+}: {
+  variant: "banner" | "card"
+  className?: string
+}) {
+  const placeholder = (
+    <div
+      className={cn(
+        "flex aspect-[2/3] shrink-0 items-center justify-center rounded-[2px] border border-line-2",
+        variant === "banner" ? "w-14" : "w-full max-w-[168px]",
+      )}
+    >
+      <BookOpen
+        className={variant === "banner" ? "h-4 w-4 text-ink-mute" : "h-7 w-7 text-ink-mute"}
+        strokeWidth={1.5}
+        aria-hidden="true"
+      />
+    </div>
+  )
+
+  if (variant === "banner") {
+    return (
+      <section
+        aria-label="Aucun livre en cours"
+        className={cn(
+          "flex items-center gap-3 rounded-[4px] bg-card p-3 shadow-card",
+          className,
+        )}
+      >
+        {placeholder}
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-[15px] font-semibold text-ink">
+            Aucun livre en cours
+          </h2>
+          <p className="truncate text-[13px] text-ink-soft">
+            Choisis-en un dans ta pile à lire
+          </p>
+        </div>
+        <Button asChild className="h-11 min-w-11 rounded-[3px] px-4 text-[15px]">
+          <Link to="/pile-a-lire">
+            Choisir
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </Button>
+      </section>
+    )
+  }
+
+  return (
+    <section
+      aria-label="Aucun livre en cours"
+      className={cn(
+        "flex flex-col items-center gap-4 rounded-[4px] bg-card p-5 py-10 text-center shadow-card",
+        className,
+      )}
+    >
+      {placeholder}
+      <div>
+        <h2 className="text-[17px] font-semibold text-ink">Aucun livre en cours</h2>
+        <p className="mx-auto mt-1.5 max-w-[26ch] text-[13.5px] text-ink-mute">
+          Choisis-en un dans ta pile à lire pour le retrouver ici.
+        </p>
+      </div>
+      <Button asChild className="h-11 w-full rounded-[3px] text-[15px]">
+        <Link to="/pile-a-lire">
+          Aller à la pile à lire
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </Button>
     </section>
   )
 }

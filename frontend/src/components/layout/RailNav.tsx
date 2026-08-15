@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import type { NavItem } from "@/types/book"
 import { NAV_ICONS } from "./nav-icons"
@@ -31,21 +32,21 @@ export function RailNav({ items, activeKey }: RailNavProps) {
           if (isAdd) {
             return (
               <li key={item.key} className="my-2">
-                <a
-                  href={item.href}
+                <Link
+                  to={item.href}
                   className="flex min-h-11 items-center gap-2.5 rounded-[3px] bg-ink px-3 text-[15px] text-paper transition-transform active:translate-y-px"
                 >
                   <Icon className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden="true" />
                   {item.label}
-                </a>
+                </Link>
               </li>
             )
           }
 
           return (
             <li key={item.key}>
-              <a
-                href={item.href}
+              <Link
+                to={item.href}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex min-h-11 items-center gap-2.5 border-l-2 border-transparent pl-3 pr-2 text-[15px]",
@@ -54,7 +55,7 @@ export function RailNav({ items, activeKey }: RailNavProps) {
               >
                 <Icon className="h-5 w-5 shrink-0" strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
                 {item.label}
-              </a>
+              </Link>
             </li>
           )
         })}

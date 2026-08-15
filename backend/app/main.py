@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
@@ -41,7 +42,23 @@ app.mount("/covers", StaticFiles(directory=config.COVERS_DIR), name="covers")
 # /koreader/import et /koreader/import/confirm).
 config.KOREADER_PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
-# Le front (build statique) est servi en dernier, en catch-all.
+# Le front (build statique) est servi en catch-all SPA. Les routes API et
+# /covers sont enregistrées AVANT et gagnent toujours ; tout autre chemin
+# sert le fichier réel s'il existe, sinon index.html — pour que les routes
+# react-router (`/livres/5`, `/pile-a-lire`) survivent à un rechargement
+# d'onglet. NOTE frontend-dev : `html=True` de StaticFiles ne couvrait que
+# la racine ; modifié pour servir le SPA complet (à valider par backend-dev).
 static_dir = Path(__file__).resolve().parent.parent / "static"
-if static_dir.is_dir():
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str) -> FileResponse:
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    candidate = static_dir / full_path
+    if candidate.is_file():
+        return FileResponse(candidate)
+    index = static_dir / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Frontend non construit")
+    return FileResponse(index)

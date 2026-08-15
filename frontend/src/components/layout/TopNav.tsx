@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import type { NavItem } from "@/types/book"
 import { NAV_ICONS } from "./nav-icons"
@@ -32,21 +33,21 @@ export function TopNav({ items, activeKey }: TopNavProps) {
             if (isAdd) {
               return (
                 <li key={item.key} className="ml-2">
-                  <a
-                    href={item.href}
+                  <Link
+                    to={item.href}
                     className="flex items-center gap-1.5 rounded-[3px] bg-ink px-4 py-2 text-[15px] text-paper transition-transform active:translate-y-px"
                   >
                     <Icon className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
                     {item.label}
-                  </a>
+                  </Link>
                 </li>
               )
             }
 
             return (
               <li key={item.key}>
-                <a
-                  href={item.href}
+                <Link
+                  to={item.href}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-[15px] transition-colors",
@@ -57,7 +58,7 @@ export function TopNav({ items, activeKey }: TopNavProps) {
                 >
                   <Icon className="h-4 w-4" strokeWidth={isActive ? 2.25 : 1.75} aria-hidden="true" />
                   {item.label}
-                </a>
+                </Link>
               </li>
             )
           })}

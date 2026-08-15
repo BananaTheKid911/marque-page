@@ -132,9 +132,13 @@ Effets de bord connus, aucun ne casse quoi que ce soit puisque les deux layouts 
 - Cibles tactiles **≥ 44 px** sur la barre basse et le rail.
 - Ordre de la barre basse : Bibliothèque · Pile à lire · **Ajouter** (pastille d'encre au centre) · Stats · Réglages.
 
+### Décisions actées
+
+**Carte/bandeau « En cours » sans livre primaire désigné** (décidé le 15/08/2026) : ne pas la masquer. Afficher un état vide invitant à choisir — message du type « Aucun livre en cours — choisis-en un dans ta pile à lire » avec un lien vers la PAL. C'est un écran sans couverture de plus à dessiner (cf. ci-dessous), pas un cas particulier.
+
 ### Ce qui n'est pas encore dessiné
 
-Les écrans **sans couverture** — réglages, wishlist vide, import KOReader, rattachement manuel d'un livre KOReader. C'est là que l'absence d'accent se verra, et c'est là qu'on décidera s'il faut une **couleur de signal** (une seule, réservée aux états : erreur d'import, livre abandonné). Le noir sait dire « actif », il ne sait pas dire « attention ». **Ne pas trancher seul :** remonter la question à Jordy quand un de ces écrans arrive.
+Les écrans **sans couverture** — réglages, wishlist vide, import KOReader, rattachement manuel d'un livre KOReader, et désormais l'état vide de la carte « En cours ». C'est là que l'absence d'accent se verra, et c'est là qu'on décidera s'il faut une **couleur de signal** (une seule, réservée aux états : erreur d'import, livre abandonné). Le noir sait dire « actif », il ne sait pas dire « attention ». **Ne pas trancher seul :** remonter la question à Jordy quand un de ces écrans arrive.
 
 ---
 

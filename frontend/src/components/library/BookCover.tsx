@@ -1,5 +1,6 @@
+import { Link } from "react-router-dom"
 import { formatAuthors, formatPercent } from "@/lib/format"
-import { STATUS_LABELS } from "@/lib/mock-data"
+import { STATUS_LABELS } from "@/lib/constants"
 import type { Book } from "@/types/book"
 
 interface BookCoverProps {
@@ -24,7 +25,7 @@ export function BookCover({ book, tomeLabel }: BookCoverProps) {
   const showStatusCaption = book.status === "dnf" || book.status === "on_hold"
 
   return (
-    <a href={`/livres/${book.id}`} className="group block text-left">
+    <Link to={`/livres/${book.id}`} className="group block text-left">
       <div className="relative aspect-[2/3] overflow-hidden rounded-[2px] bg-line-2 shadow-cover transition-transform group-hover:-translate-y-0.5 group-focus-visible:-translate-y-0.5">
         {book.coverUrl && (
           <img
@@ -64,6 +65,6 @@ export function BookCover({ book, tomeLabel }: BookCoverProps) {
           </p>
         )}
       </div>
-    </a>
+    </Link>
   )
 }

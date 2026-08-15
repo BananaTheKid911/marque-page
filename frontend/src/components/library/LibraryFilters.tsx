@@ -9,21 +9,31 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import type { Author, Book, Label, Series } from "@/types/book"
-import { STATUS_LABELS } from "@/lib/mock-data"
+import { STATUS_LABELS } from "@/lib/constants"
+
+export interface LibraryFilterState {
+  /** `status` du GET /books ; "all" = pas de filtre. */
+  status: Book["status"] | "all"
+  /**
+   * Série active : changer de série change le COMPORTEMENT de la grille
+   * (tri par tome + badge), pas juste son contenu — c'est LibraryPage qui
+   * porte cette différence, pas ce composant.
+   */
+  seriesId: number | "all"
+  /** recherche `q` : sous-chaîne titre/sous-titre */
+  q: string
+  authorId: number | "all"
+  genreId: number | "all"
+  tagId: number | "all"
+}
 
 interface LibraryFiltersProps {
   authors: Author[]
   genres: Label[]
   tags: Label[]
   series: Series[]
-  activeStatus: Book["status"] | "all"
-  /**
-   * Série active (choisie via QA route `?serie=<id>` — voir LibraryPage).
-   * Contrairement aux autres filtres, la choisir change le COMPORTEMENT
-   * de la grille (tri par tome + badge), pas juste son contenu : c'est
-   * LibraryPage qui porte cette différence, pas ce composant.
-   */
-  activeSeriesId?: number | "all"
+  filters: LibraryFilterState
+  onChange: (patch: Partial<LibraryFilterState>) => void
 }
 
 const STATUS_ORDER: (Book["status"] | "all")[] = [
@@ -37,28 +47,29 @@ const STATUS_ORDER: (Book["status"] | "all")[] = [
 ]
 
 /**
- * Filtres statut/auteur/genre/tag — mock visuel uniquement (pas de
- * state, pas d'appel réseau : frontend-dev branchera la logique).
- * Statut en onglets soulignés (filet actif), pas de pastille colorée.
+ * Filtres statut/auteur/genre/tag — composant contrôlé : l'état vit dans
+ * LibraryPage (qui construit la query GET /books), ce composant ne fait
+ * que remonter les changements. La recherche est débouncée par l'appelant.
  */
 export function LibraryFilters({
   authors,
   genres,
   tags,
   series,
-  activeStatus,
-  activeSeriesId = "all",
+  filters,
+  onChange,
 }: LibraryFiltersProps) {
   return (
     <div className="flex flex-col gap-3">
       <ul className="flex gap-5 overflow-x-auto whitespace-nowrap pb-px">
         {STATUS_ORDER.map((status) => {
-          const isActive = status === activeStatus
+          const isActive = status === filters.status
           const label = status === "all" ? "Tous" : STATUS_LABELS[status]
           return (
             <li key={status}>
               <button
                 type="button"
+                onClick={() => onChange({ status })}
                 className={cn(
                   "border-b-2 border-transparent py-2 text-[15px] transition-colors",
                   isActive
@@ -80,10 +91,15 @@ export function LibraryFilters({
             type="search"
             placeholder="Rechercher un titre…"
             className="pl-8"
+            value={filters.q}
+            onChange={(e) => onChange({ q: e.target.value })}
           />
         </div>
 
-        <Select defaultValue="all">
+        <Select
+          value={String(filters.authorId)}
+          onValueChange={(v) => onChange({ authorId: v === "all" ? "all" : Number(v) })}
+        >
           <SelectTrigger className="shrink-0">
             <SelectValue placeholder="Auteur" />
           </SelectTrigger>
@@ -97,7 +113,10 @@ export function LibraryFilters({
           </SelectContent>
         </Select>
 
-        <Select defaultValue="all">
+        <Select
+          value={String(filters.genreId)}
+          onValueChange={(v) => onChange({ genreId: v === "all" ? "all" : Number(v) })}
+        >
           <SelectTrigger className="shrink-0">
             <SelectValue placeholder="Genre" />
           </SelectTrigger>
@@ -111,7 +130,10 @@ export function LibraryFilters({
           </SelectContent>
         </Select>
 
-        <Select defaultValue="all">
+        <Select
+          value={String(filters.tagId)}
+          onValueChange={(v) => onChange({ tagId: v === "all" ? "all" : Number(v) })}
+        >
           <SelectTrigger className="shrink-0">
             <SelectValue placeholder="Tag" />
           </SelectTrigger>
@@ -126,7 +148,10 @@ export function LibraryFilters({
         </Select>
 
         {series.length > 0 && (
-          <Select defaultValue={String(activeSeriesId)}>
+          <Select
+            value={String(filters.seriesId)}
+            onValueChange={(v) => onChange({ seriesId: v === "all" ? "all" : Number(v) })}
+          >
             <SelectTrigger className="shrink-0">
               <SelectValue placeholder="Série" />
             </SelectTrigger>

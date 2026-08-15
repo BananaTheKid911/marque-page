@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
-import { NAV_ITEMS } from "@/lib/mock-data"
-import type { CurrentlyReading, NavItem } from "@/types/book"
+import { NAV_ITEMS } from "@/lib/constants"
+import type { NavItem } from "@/types/book"
+import { useBooks } from "@/context/books"
 import { CurrentlyReadingCard } from "@/components/reading/CurrentlyReadingCard"
 import { TopNav } from "./TopNav"
 import { BottomNav } from "./BottomNav"
@@ -8,7 +9,6 @@ import { RailNav } from "./RailNav"
 
 interface AppShellProps {
   activeKey: NavItem["key"]
-  currentlyReading: CurrentlyReading
   children: ReactNode
 }
 
@@ -18,8 +18,13 @@ interface AppShellProps {
  * aucune détection de largeur en JS, aucune media query. Les trois navs
  * et la carte latérale coexistent dans le DOM ; c'est le CSS qui décide
  * laquelle s'affiche.
+ *
+ * La carte « En cours » (sidebar) vit ici, en dehors des routes : elle
+ * consomme le contexte livres, pas les props d'une page.
  */
-export function AppShell({ activeKey, currentlyReading, children }: AppShellProps) {
+export function AppShell({ activeKey, children }: AppShellProps) {
+  const { currentlyReading } = useBooks()
+
   return (
     <div className="shell-frame">
       <div className="shell bg-paper">

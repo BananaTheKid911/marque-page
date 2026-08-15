@@ -1,11 +1,19 @@
 /**
- * Types calqués sur le schéma SQLModel décrit dans SPEC.md §2 et l'API
- * §5, pour que frontend-dev n'ait qu'à brancher le client HTTP sans
- * retoucher la forme des données consommées par les composants visuels.
+ * Types du frontend, dérivés du contrat d'API réel (backend/app/schemas.py,
+ * §5 de SPEC.md). `Book` est la projection camelCase de `BookOut` produite
+ * par le mapper de lib/api.ts — les champs exposés ici sont ceux que les
+ * composants lisent réellement.
  *
- * Ce fichier n'est PAS le contrat d'API définitif — c'est une projection
- * côté front pensée pour l'affichage. Si le vrai payload diverge,
- * l'ajustement revient à frontend-dev / backend-dev.
+ * Écarts assumés avec `BookOut` (choix front, documentés dans le mapper) :
+ * - `authors` est un tableau de NOMS (`BookOut.authors: string[]`), plus de
+ *   structure `{id, name}` — le détail id/via `GET /authors`.
+ * - `labels` est éclaté en `tags`/`genres` (`BookOut` expose deux listes de
+ *   noms, pas d'`id` par liaison).
+ * - `owned`, `is_primary_reading` sont des booléens (`BookOut` : 0/1).
+ * - `current_percent` devient `currentPercent` ; `price_paid` →
+ *   `pricePaid` ; `tbr_rank` → `tbrRank` ; `cover_url` → `coverUrl`.
+ * - `series_name`/`series_id`/`series_index` sont portés directement sur le
+ *   livre (plus de table `Series` dédiée au rendu).
  */
 
 /** `book.status` — SPEC.md §2 */
@@ -20,32 +28,32 @@ export type BookStatus =
 /** `label.kind` — SPEC.md §2 */
 export type LabelKind = "genre" | "tag"
 
+/** `GET /authors` — `AuthorOut` */
 export interface Author {
   id: number
   name: string
+  openlibraryKey?: string | null
+  bookCount?: number
 }
 
+/** `GET /labels` — `LabelOut` */
 export interface Label {
   id: number
   name: string
   kind: LabelKind
+  bookCount?: number
 }
 
-/**
- * Série (inspirée de la table `book.series` de KOReader, SPEC.md §4.1) —
- * concept nouveau, absent du schéma actuel. `Book.seriesIndex` porte le
- * numéro de tome et autorise les décimales (1.5 pour un hors-série).
- */
+/** `GET /series` — `SeriesOut` (le rang d'un tome vit sur le livre) */
 export interface Series {
   id: number
   name: string
+  bookCount?: number
 }
 
 /**
- * Format = physique / digital / audio, non exclusif : un livre peut
- * cumuler plusieurs formats. `owned` est porté PAR format, pas par livre
- * — cas réel : édition papier achetée, version numérique seulement
- * empruntée/lue sans achat.
+ * Format = physique / digital / audio, non exclusif : un livre peut cumuler
+ * plusieurs formats. `owned` est porté PAR format, pas par livre.
  */
 export type BookFormatType = "physique" | "digital" | "audio"
 
@@ -54,76 +62,84 @@ export interface BookFormat {
   owned: boolean
 }
 
+/** Projection camelCase de `BookOut` (backend/app/schemas.py). */
 export interface Book {
   id: number
   title: string
-  subtitle?: string | null
-  authors: Author[]
-  labels: Label[]
+  subtitle: string | null
+  authors: string[]
+  tags: string[]
+  genres: string[]
   status: BookStatus
   /** chemin local servi par le backend, jamais un hotlink externe */
   coverUrl: string | null
+  coverThumbUrl: string | null
   pageCount: number | null
   currentPage: number
   /** 0..1 */
   currentPercent: number
   rating: number | null
-  /** métadonnées utilisées par la page Détail — absentes des mocks de grille */
-  publisher?: string | null
-  year?: number | null
-  description?: string | null
-  startedAt?: string | null
-  finishedAt?: string | null
+  publisher: string | null
+  publishedDate: string | null
+  language: string | null
+  description: string | null
+  /** `owned=1` (BookOut) — la Bibliothèque ne montre que les livres possédés */
+  owned: boolean
   /**
    * Un seul livre `reading` à la fois porte `true` — exclusivité maintenue
-   * à la main dans les mocks (SQLModel/backend tranchera la contrainte
-   * réelle). Choix manuel exposé uniquement depuis BookDetailPage, jamais
-   * depuis la grille Bibliothèque (décision produit du 15/08/2026).
+   * côté backend (index partiel unique). Choix manuel exposé uniquement
+   * depuis BookDetailPage (décision produit du 15/08/2026).
    */
-  isPrimaryReading?: boolean
-  /** Série et numéro de tome, `null`/absent si le livre n'appartient à aucune série. */
-  seriesId?: number | null
-  seriesIndex?: number | null
+  isPrimaryReading: boolean
+  /** Série et numéro de tome, `null` si le livre n'appartient à aucune série. */
+  seriesId: number | null
+  seriesName: string | null
+  seriesIndex: number | null
   /** Formats détenus/consultés — non exclusifs, `owned` varie par format. */
-  formats?: BookFormat[]
+  formats: BookFormat[]
   /**
-   * Prix payé et date d'achat, uniques par livre (pas par format). Rempli
-   * seulement au moment de l'achat réel : ne jamais afficher/remplir ces
-   * deux champs pour `status === "wishlist"`.
+   * Prix payé et date d'achat, uniques par livre (pas par format). Jamais
+   * renseignés pour `status === "wishlist"` (le backend refuse).
    */
-  pricePaid?: number | null
-  purchasedAt?: string | null
+  pricePaid: number | null
+  purchasedAt: string | null
   /**
    * Pile à lire = liste curatée à la main, distincte du simple filtre
-   * `status === "tbr"` de la Bibliothèque. `tbrRank` porte l'ordre choisi
-   * (1 = prochain lu) ; `tbrNote` est le motif optionnel affiché s'il existe.
+   * `status === "tbr"`. `tbrRank` porte l'ordre choisi (1 = prochain lu) ;
+   * `tbrNote` est le motif optionnel affiché s'il existe.
    */
-  tbrRank?: number | null
-  tbrNote?: string | null
+  tbrRank: number | null
+  tbrNote: string | null
+  createdAt: string
+  updatedAt: string
 }
 
-/** `reading_session` — SPEC.md §2 et §5 */
+/** `reading_session` — `ReadingSessionOut` (SPEC.md §5) */
 export interface ReadingSession {
   id: number
   bookId: number
   startedAt: string
+  endedAt: string | null
   durationSec: number
   startPage: number | null
   endPage: number | null
   pagesRead: number | null
+  note: string | null
   source: "manual" | "timer" | "koreader"
 }
 
-/** `highlight` — SPEC.md §2 et §5 */
+/** `highlight` — `HighlightOut` (SPEC.md §5) */
 export interface Highlight {
   id: number
   bookId: number
+  bookTitle: string | null
   text: string
-  note?: string | null
+  note: string | null
   page: number | null
-  chapter?: string | null
-  highlightedAt: string
+  chapter: string | null
   source: "manual" | "koreader"
+  highlightedAt: string | null
+  createdAt: string
 }
 
 /** Données affichées par le composant « Reprendre / En cours » */
@@ -133,6 +149,30 @@ export interface CurrentlyReading {
   lastSessionDurationSec: number
   /** nombre de sessions enregistrées sur ce livre */
   sessionCount: number
+}
+
+/** `GET /books` — `BookList` (page_size en snake_case, tel que servi) */
+export interface BookList {
+  items: Book[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface SessionList {
+  items: ReadingSession[]
+  total: number
+}
+
+export interface HighlightList {
+  items: Highlight[]
+  total: number
+}
+
+/** `GET /series/{id}/books` — `SeriesBooks` */
+export interface SeriesBooks {
+  series: Series
+  books: Book[]
 }
 
 export interface NavItem {

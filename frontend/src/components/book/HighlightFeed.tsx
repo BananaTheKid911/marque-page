@@ -41,7 +41,7 @@ export function HighlightFeed({ highlights }: HighlightFeedProps) {
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] uppercase tracking-[0.12em] text-ink-mute">
                 {highlight.chapter && <span>{highlight.chapter}</span>}
                 {highlight.page != null && <span className="tabular-nums">p. {highlight.page}</span>}
-                <span>{formatDate(highlight.highlightedAt)}</span>
+                {highlight.highlightedAt && <span>{formatDate(highlight.highlightedAt)}</span>}
                 <Badge variant="outline" className="text-[10px] font-normal normal-case tracking-normal text-ink-mute">
                   {SOURCE_LABELS[highlight.source]}
                 </Badge>

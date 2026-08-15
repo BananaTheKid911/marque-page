@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { BookHeart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -19,8 +20,8 @@ export function WishlistEmptyState() {
           Les livres que tu veux lire un jour, sans les posséder encore, vivent ici.
         </p>
       </div>
-      <Button size="lg" className="h-11 rounded-[3px] px-5 text-[15px]">
-        Ajouter un livre
+      <Button asChild size="lg" className="h-11 rounded-[3px] px-5 text-[15px]">
+        <Link to="/ajouter">Ajouter un livre</Link>
       </Button>
     </div>
   )

@@ -2,41 +2,64 @@ import { Play, Check, Bookmark, BookmarkCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { formatAuthors, formatDateLong, formatPrice } from "@/lib/format"
-import { STATUS_LABELS } from "@/lib/mock-data"
+import { extractYear, formatAuthors, formatClock, formatDateLong, formatPrice } from "@/lib/format"
+import { STATUS_LABELS } from "@/lib/constants"
 import { SeriesTomes } from "./SeriesTomes"
 import { FormatBadges } from "./FormatBadges"
 import type { Book } from "@/types/book"
 
+/** État du chrono de session, tel que consommé par le bouton primaire. */
+export interface BookHeroTimerState {
+  running: boolean
+  /** secondes écoulées depuis le début, rafraîchies chaque seconde */
+  elapsedSec: number
+}
+
 interface BookHeroProps {
   book: Book
+  /** `null` = aucun chrono ouvert pour ce livre */
+  timer?: BookHeroTimerState | null
+  /** pendant une mutation : désactive les boutons pour éviter les doubles POST */
+  busy?: boolean
+  /** message d'erreur de la dernière mutation, affiché près des actions */
+  error?: string | null
+  onStartSession?: () => void
+  onStopSession?: () => void
+  onMarkReading?: () => void
+  onTogglePrimary?: () => void
+  onMarkRead?: () => void
 }
 
 /**
  * En-tête de la page Détail : couverture + identité + action primaire.
  * Empilé en mobile, deux colonnes à partir de 700px (mêmes seuils que le
  * reste du shell). Un seul bouton d'encre par écran (AGENTS.md) : c'est
- * celui-ci, "Démarrer une session" — le reste des actions est en outline,
- * y compris "Définir comme livre principal" qui n'est PAS un second point
- * de fixation malgré son état actif (contour + poids, jamais de remplissage).
+ * celui-ci — quand un chrono est ouvert, il devient "Arrêter le chrono"
+ * avec la durée écoulée (même emplacement, même masse noire).
  *
  * "Marquer comme en cours" / "Reprendre la lecture" (tbr / on_hold) est le
  * passage manuel explicite vers "reading" — troisième chemin décidé le
  * 15/08/2026, à côté des deux chemins automatiques côté backend (démarrer
  * une session, import KOReader). Reste en outline : ce n'est pas l'action
- * primaire de la ligne. Même icône Play que "Démarrer une session" (même
- * verbe visuel : lancer une lecture), mais en contour seulement — jamais
- * `fill-current` — pour rester subordonnée au Play plein du bouton d'encre.
- * Pas de bordure pointillée ici : dans FormatBadges.tsx, le pointillé porte
- * un sens déjà pris, "non possédé" sur l'axe format/possession — l'étendre
- * à "action pas encore engagée" écraserait cette convention plutôt que de
- * la réutiliser.
+ * primaire de la ligne.
  */
-export function BookHero({ book }: BookHeroProps) {
+export function BookHero({
+  book,
+  timer = null,
+  busy = false,
+  error = null,
+  onStartSession,
+  onStopSession,
+  onMarkReading,
+  onTogglePrimary,
+  onMarkRead,
+}: BookHeroProps) {
   const showCaption = book.status === "dnf" || book.status === "on_hold" || book.status === "wishlist"
   const canStartSession = book.status === "reading" || book.status === "tbr" || book.status === "on_hold"
   const hasPurchaseInfo =
     book.status !== "wishlist" && (book.pricePaid != null || book.purchasedAt != null)
+  const year = extractYear(book.publishedDate)
+  const allLabels = [...book.genres, ...book.tags]
 
   return (
     <div className="flex flex-col gap-6 @min-[700px]:flex-row">
@@ -71,12 +94,12 @@ export function BookHero({ book }: BookHeroProps) {
 
         <SeriesTomes book={book} />
 
-        {book.labels.length > 0 && (
+        {allLabels.length > 0 && (
           <ul className="flex flex-wrap gap-1.5">
-            {book.labels.map((label) => (
-              <li key={`${label.kind}-${label.id}`}>
+            {allLabels.map((label) => (
+              <li key={label}>
                 <Badge variant="outline" className="text-[11px] font-normal text-ink-soft">
-                  {label.name}
+                  {label}
                 </Badge>
               </li>
             ))}
@@ -85,14 +108,14 @@ export function BookHero({ book }: BookHeroProps) {
 
         <dl className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-ink-mute">
           {book.publisher && <div>{book.publisher}</div>}
-          {book.year && <div className="tabular-nums">{book.year}</div>}
+          {year && <div className="tabular-nums">{year}</div>}
           {book.pageCount && <div className="tabular-nums">{book.pageCount} pages</div>}
           {book.rating && (
             <div className="tabular-nums">{book.rating.toFixed(1)} / 5</div>
           )}
         </dl>
 
-        {book.formats && book.formats.length > 0 && <FormatBadges formats={book.formats} />}
+        {book.formats.length > 0 && <FormatBadges formats={book.formats} />}
 
         {hasPurchaseInfo && (
           <dl className="flex flex-wrap gap-x-6 gap-y-2">
@@ -126,20 +149,26 @@ export function BookHero({ book }: BookHeroProps) {
         )}
 
         <div className="mt-1 flex flex-wrap gap-2">
-          {canStartSession && (
-            <Button
-              size="lg"
-              className="h-11 rounded-[3px] px-5 text-[15px]"
-            >
+          {timer?.running ? (
+            <Button size="lg" className="h-11 rounded-[3px] px-5 text-[15px]" onClick={onStopSession} disabled={busy}>
               <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-              Démarrer une session
+              Arrêter le chrono {formatClock(timer.elapsedSec)}
             </Button>
+          ) : (
+            canStartSession && (
+              <Button size="lg" className="h-11 rounded-[3px] px-5 text-[15px]" onClick={onStartSession} disabled={busy}>
+                <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+                Démarrer une session
+              </Button>
+            )
           )}
           {(book.status === "tbr" || book.status === "on_hold") && (
             <Button
               variant="outline"
               size="lg"
               className="h-11 rounded-[3px] px-5 text-[15px]"
+              onClick={onMarkReading}
+              disabled={busy}
             >
               <Play className="h-4 w-4" aria-hidden="true" />
               {book.status === "on_hold" ? "Reprendre la lecture" : "Marquer comme en cours"}
@@ -150,6 +179,8 @@ export function BookHero({ book }: BookHeroProps) {
               variant="outline"
               size="lg"
               aria-pressed={Boolean(book.isPrimaryReading)}
+              onClick={onTogglePrimary}
+              disabled={busy}
               className={cn(
                 "h-11 rounded-[3px] px-5 text-[15px]",
                 book.isPrimaryReading && "border-ink font-medium text-ink",
@@ -168,12 +199,20 @@ export function BookHero({ book }: BookHeroProps) {
               variant="outline"
               size="lg"
               className="h-11 rounded-[3px] px-5 text-[15px]"
+              onClick={onMarkRead}
+              disabled={busy}
             >
               <Check className="h-4 w-4" aria-hidden="true" />
               Marquer comme lu
             </Button>
           )}
         </div>
+
+        {error && (
+          <p className="text-[12.5px] text-ink-soft" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   )

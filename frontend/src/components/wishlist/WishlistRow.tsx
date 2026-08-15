@@ -18,9 +18,9 @@ export function WishlistRow({ book }: WishlistRowProps) {
       <div className="min-w-0">
         <h3 className="truncate text-[15px] font-medium text-ink">{book.title}</h3>
         <p className="mt-0.5 truncate text-[13px] text-ink-mute">{formatAuthors(book.authors)}</p>
-        {book.labels.length > 0 && (
+        {[...book.genres, ...book.tags].length > 0 && (
           <p className="mt-1 truncate text-[11px] uppercase tracking-[0.1em] text-ink-mute">
-            {book.labels.map((l) => l.name).join(" · ")}
+            {[...book.genres, ...book.tags].join(" · ")}
           </p>
         )}
       </div>
