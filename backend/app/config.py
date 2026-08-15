@@ -53,3 +53,34 @@ def _host_allowed(host: str) -> bool:
 
 # Durée de vie du cache mémoire des réponses métadonnées (secondes).
 METADATA_CACHE_TTL_SEC = 300
+
+# ---------------------------------------------------------------------------
+# KOReader (Phase 5)
+# ---------------------------------------------------------------------------
+
+def _read_gap_sec() -> int:
+    """Seuil d'inactivité pour la reconstruction des sessions KOReader
+    (SPEC §4.2) : deux lectures de page espacées de plus que ce seuil = deux
+    sessions distinctes. Défaut 900 s = 15 min. Variable d'environnement
+    documentée dans .env.example, câblée dans le compose (défaut safe)."""
+    raw = os.environ.get("SESSION_GAP_SEC", "900")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 900
+    return max(1, value)
+
+
+SESSION_GAP_SEC = _read_gap_sec()
+
+# Dossier des imports KOReader « en attente de confirmation » : le fichier
+# uploadé y est conservé entre POST /koreader/import (preview) et
+# POST /koreader/import/confirm. Il vit dans le volume /app/data (NVMe).
+# Surchargeable via MARQUEPAGE_KOREADER_PENDING pour le dev et les tests.
+KOREADER_PENDING_DIR = Path(
+    os.environ.get("MARQUEPAGE_KOREADER_PENDING", "/app/data/koreader-pending")
+)
+
+# Taille maximale d'un statistics.sqlite3 uploadé (octets) — 50 Mo, très
+# au-dessus d'un fichier de stats réaliste (< 10 Mo même après des années).
+MAX_KOREADER_BYTES = 50 * 1024 * 1024

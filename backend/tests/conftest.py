@@ -19,6 +19,7 @@ import pytest
 _TMP = Path(tempfile.mkdtemp(prefix="marquepage-tests-"))
 os.environ["MARQUEPAGE_DB"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ["MARQUEPAGE_COVERS"] = str(_TMP / "covers")
+os.environ["MARQUEPAGE_KOREADER_PENDING"] = str(_TMP / "koreader-pending")
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine  # noqa: E402

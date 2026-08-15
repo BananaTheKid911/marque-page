@@ -7,6 +7,9 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Europe/Paris
+      # Lu depuis Phase 5 (reconstruction sessions KOReader, SPEC §4.2).
+      # Interpolation : .env à la racine si présent, sinon défaut 900.
+      - SESSION_GAP_SEC=${SESSION_GAP_SEC:-900}
     volumes:
       - /home/banserv/docker/marquepage/data:/app/data
       - /home/banserv/docker/marquepage/covers:/app/covers

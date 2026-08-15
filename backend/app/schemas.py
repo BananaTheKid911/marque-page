@@ -308,6 +308,7 @@ class ReadingSessionOut(BaseModel):
     pages_read: int | None = None
     note: str | None = None
     source: str  # manual | timer | koreader
+    koreader_hash: str | None = None  # idempotence imports KOReader (§4.2)
     created_at: str
 
 
@@ -435,6 +436,89 @@ class HighlightOut(BaseModel):
 class HighlightList(BaseModel):
     items: list[HighlightOut]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# KOREADER — import statistics.sqlite3 (§4, Phase 5)
+# ---------------------------------------------------------------------------
+
+class KoreaderSessionPreview(BaseModel):
+    """Une session reconstruite (§4.2), telle qu'elle sera importée.
+
+    `already_imported` : le `koreader_hash` existe déjà en base → l'import
+    la sautera (idempotence).
+    """
+
+    koreader_hash: str
+    started_at: str
+    ended_at: str | None = None
+    duration_sec: int
+    start_page: int | None = None
+    end_page: int | None = None
+    pages_read: int | None = None
+    already_imported: bool = False
+
+
+class KoreaderCandidate(BaseModel):
+    """Un livre de l'app suggéré comme rattachement probable (match flou
+    titre+auteur, §4.3). La décision revient à l'utilisateur."""
+
+    book_id: int
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    score: float  # 0..1 — similarité de titre (+ bonus auteur)
+
+
+class KoreaderBookPreview(BaseModel):
+    """Un livre détecté dans le fichier et son état de rattachement.
+
+    `matched=True` : rattaché automatiquement via `koreader_md5` déjà
+    persisté. Sinon `candidates` propose les livres de l'app les plus
+    proches (titre+auteur) pour la confirmation manuelle.
+    """
+
+    koreader_book_id: int
+    title: str
+    authors: str
+    md5: str | None = None
+    total_sessions: int
+    total_duration_sec: int
+    matched: bool = False
+    matched_book_id: int | None = None
+    candidates: list[KoreaderCandidate] = Field(default_factory=list)
+
+
+class KoreaderPreview(BaseModel):
+    """Réponse de `POST /koreader/import` : le diff avant confirmation."""
+
+    import_id: str  # sha256 du fichier ; requis par /import/confirm
+    gap_sec: int
+    books: list[KoreaderBookPreview]
+    sessions: list[KoreaderSessionPreview]
+    sessions_to_import: int
+    sessions_skipped: int
+
+
+class KoreaderMapping(BaseModel):
+    """Rattachement choisi par l'utilisateur : livre KOReader → livre app."""
+
+    koreader_book_id: int
+    book_id: int
+
+
+class KoreaderConfirmRequest(BaseModel):
+    import_id: str
+    mappings: list[KoreaderMapping] = Field(default_factory=list)
+
+
+class KoreaderConfirmResult(BaseModel):
+    """Résumé de `POST /koreader/import/confirm`."""
+
+    import_id: str
+    sessions_added: int
+    sessions_skipped: int
+    books_matched: int  # livres KOReader rattachés (md5 ou mapping)
+    books_unmatched: int  # livres KOReader non rattachés (restent sans lien)
 
 
 # ---------------------------------------------------------------------------
