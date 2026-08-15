@@ -1,9 +1,12 @@
-"""Router /api/v1 — taxonomie : auteurs et labels (tags/genres) (§5).
+"""Router /api/v1 — taxonomie : auteurs, séries et labels (tags/genres) (§5).
 
 Ces endpoints alimentent les filtres et les vues de la Bibliothèque :
 - `GET /authors` — tous les auteurs avec le nombre de livres liés.
 - `GET /authors/{id}/books` — les livres d'un auteur.
 - `GET /labels?kind=genre|tag` — labels d'un kind avec nombre de livres.
+- `GET /series` — toutes les séries avec le nombre de livres liés
+  (filtre « Série » de la Bibliothèque, décision produit 15/08).
+- `GET /series/{id}/books` — les livres d'une série.
 
 Le `book_count` est un compte *actuel* (livres liés), sans notion de
 statut : la Bibliothèque (owned=1) se filtre côté `GET /books`.
@@ -16,8 +19,16 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import Author, Book, BookAuthor, BookLabel, Label
-from app.schemas import AuthorBooks, AuthorOut, BookOut, LabelList, LabelOut
+from app.models import Author, Book, BookAuthor, BookLabel, Label, Series
+from app.schemas import (
+    AuthorBooks,
+    AuthorOut,
+    BookOut,
+    LabelList,
+    LabelOut,
+    SeriesBooks,
+    SeriesOut,
+)
 
 from app.routers.books import _book_out, _get_author_names, _get_labels
 
@@ -67,7 +78,7 @@ def author_books(
     items: list[BookOut] = []
     for b in books:
         tags, genres = _get_labels(session, b.id)
-        items.append(_book_out(b, _get_author_names(session, b.id), tags, genres))
+        items.append(_book_out(session, b, _get_author_names(session, b.id), tags, genres))
 
     return AuthorBooks(
         author=AuthorOut(
@@ -76,6 +87,52 @@ def author_books(
             openlibrary_key=author.openlibrary_key,
             book_count=count,
         ),
+        books=items,
+    )
+
+
+@router.get("/series", response_model=list[SeriesOut])
+def list_series(session: Session = Depends(get_session)) -> list[SeriesOut]:
+    """Toutes les séries, triées par nom, avec leur nombre de livres."""
+    rows = session.exec(
+        select(Series, func.count(Book.series_id))
+        .outerjoin(Book, Book.series_id == Series.id)
+        .group_by(Series.id)
+        .order_by(Series.name)
+    ).all()
+    return [
+        SeriesOut(id=series.id, name=series.name, book_count=count)
+        for series, count in rows
+    ]
+
+
+@router.get("/series/{series_id}/books", response_model=SeriesBooks)
+def series_books(
+    series_id: int, session: Session = Depends(get_session)
+) -> SeriesBooks:
+    """Les livres d'une série, triés par numéro de tome (les livres sans
+    tome en premier — SQLite trie NULL en tête en ASC)."""
+    series = session.get(Series, series_id)
+    if series is None:
+        raise HTTPException(status_code=404, detail="Série introuvable")
+
+    count = session.exec(
+        select(func.count(Book.id)).where(Book.series_id == series_id)
+    ).one()
+
+    books = session.exec(
+        select(Book)
+        .where(Book.series_id == series_id)
+        .order_by(Book.series_index.asc())
+    ).all()
+
+    items: list[BookOut] = []
+    for b in books:
+        tags, genres = _get_labels(session, b.id)
+        items.append(_book_out(session, b, _get_author_names(session, b.id), tags, genres))
+
+    return SeriesBooks(
+        series=SeriesOut(id=series.id, name=series.name, book_count=count),
         books=items,
     )
 

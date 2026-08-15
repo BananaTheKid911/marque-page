@@ -10,6 +10,7 @@ défaut d'AutoString, pour rester conforme à la lettre du DDL.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, Index, Numeric, Text, UniqueConstraint
 # Importé sous un autre nom : le champ `text` de Highlight masquerait
@@ -75,10 +76,12 @@ class Book(SQLModel, table=True):
     acquired_date: str | None = Field(default=None, sa_type=Text)
     # Série (décision produit 15/08) : `series_index` autorise les décimales
     # (1.5 pour un hors-série). NULL = le livre n'appartient à aucune série.
+    # Typé Decimal : c'est ce que renvoie la colonne NUMERIC de SQLite (et
+    # `model_dump()` d'un champ float serait incohérent avec la valeur).
     series_id: int | None = Field(
         default=None, foreign_key="series.id", ondelete="SET NULL"
     )
-    series_index: float | None = Field(default=None, sa_type=Numeric(5, 2))
+    series_index: Decimal | None = Field(default=None, sa_type=Numeric(5, 2))
     # Prix payé / date d'achat : un seul champ chacun, jamais remplis pour un
     # livre en wishlist (le prix y serait « constaté », pas « payé »).
     price_paid: float | None = None

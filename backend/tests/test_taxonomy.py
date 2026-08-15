@@ -225,3 +225,45 @@ class TestTaxonomy:
     def test_labels_invalid_kind(self, client):
         resp = client.get("/api/v1/labels", params={"kind": "genre|tag"})
         assert resp.status_code == 422
+
+
+class TestSeries:
+    """Endpoints séries (décision produit 15/08) : filtre « Série » de la
+    Bibliothèque et tri par numéro de tome."""
+
+    def _seed(self, client):
+        client.post("/api/v1/books", json={
+            "title": "Dune", "series": "Les Dune", "series_index": 1,
+        })
+        client.post("/api/v1/books", json={
+            "title": "Hors-série", "series": "Les Dune", "series_index": 1.5,
+        })
+        client.post("/api/v1/books", json={
+            "title": "Dune Messiah", "series": "Les Dune", "series_index": 2,
+        })
+
+    def test_list_series_with_counts(self, client):
+        self._seed(client)
+        resp = client.get("/api/v1/series")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Les Dune"
+        assert data[0]["book_count"] == 3
+
+    def test_series_books_ordered_by_tome(self, client):
+        self._seed(client)
+        series = client.get("/api/v1/series").json()
+        resp = client.get(f"/api/v1/series/{series[0]['id']}/books")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["series"]["name"] == "Les Dune"
+        titles = [(b["title"], b["series_index"]) for b in data["books"]]
+        assert titles == [
+            ("Dune", 1),
+            ("Hors-série", 1.5),  # décimales entre les tomes
+            ("Dune Messiah", 2),
+        ]
+
+    def test_series_books_missing(self, client):
+        assert client.get("/api/v1/series/9999/books").status_code == 404

@@ -332,6 +332,238 @@ class TestStatusTransitions:
         assert primary == 0
 
 
+class TestFormats:
+    """Formats × possession PAR format (décision produit 15/08) : cumulables,
+    `owned` par format — papier acheté + digital emprunté cohabitent."""
+
+    def test_create_with_formats(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Dune",
+            "formats": [
+                {"type": "physique", "owned": True},
+                {"type": "digital", "owned": False},  # emprunté, pas acheté
+            ],
+        })
+        assert resp.status_code == 201, resp.text
+        formats = resp.json()["formats"]
+        assert formats == [
+            {"type": "digital", "owned": False},
+            {"type": "physique", "owned": True},
+        ]  # trié par type
+
+    def test_create_audio(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Audible", "formats": [{"type": "audio", "owned": True}],
+        })
+        assert resp.json()["formats"] == [{"type": "audio", "owned": True}]
+
+    def test_patch_formats_replace(self, client):
+        book = client.post("/api/v1/books", json={
+            "title": "X", "formats": [{"type": "physique", "owned": True}],
+        }).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={
+            "formats": [{"type": "audio", "owned": False}],
+        })
+        assert resp.status_code == 200
+        assert resp.json()["formats"] == [{"type": "audio", "owned": False}]
+
+    def test_patch_empty_formats_clears(self, client):
+        book = client.post("/api/v1/books", json={
+            "title": "X", "formats": [{"type": "physique", "owned": True}],
+        }).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"formats": []})
+        assert resp.json()["formats"] == []
+
+    def test_invalid_format_type_rejected(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "X", "formats": [{"type": "video", "owned": True}],
+        })
+        assert resp.status_code == 422
+
+    def test_duplicate_format_rejected(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "X",
+            "formats": [
+                {"type": "physique", "owned": True},
+                {"type": "physique", "owned": False},
+            ],
+        })
+        assert resp.status_code == 422
+
+    def test_format_missing_owned_rejected(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "X", "formats": [{"type": "physique"}],
+        })
+        assert resp.status_code == 422
+
+
+class TestSeries:
+    """Série (15/08) : nom unique upserté, numéro de tome décimal."""
+
+    def test_create_with_series(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Dune", "series": "Les Dune", "series_index": 1,
+        })
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["series_name"] == "Les Dune"
+        assert data["series_id"] is not None
+        assert data["series_index"] == 1
+
+    def test_series_shared_by_name(self, client):
+        b1 = client.post("/api/v1/books", json={
+            "title": "Dune", "series": "Les Dune", "series_index": 1,
+        }).json()
+        b2 = client.post("/api/v1/books", json={
+            "title": "Dune Messiah", "series": "Les Dune", "series_index": 2,
+        }).json()
+        assert b1["series_id"] == b2["series_id"]
+
+        series = client.get("/api/v1/series").json()
+        assert len(series) == 1
+        assert series[0]["name"] == "Les Dune"
+        assert series[0]["book_count"] == 2
+
+    def test_hors_serie_decimal_index(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Hors-série", "series": "Les Dune", "series_index": 1.5,
+        })
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["series_index"] == 1.5
+
+    def test_patch_series_empty_removes(self, client):
+        book = client.post("/api/v1/books", json={
+            "title": "Dune", "series": "Les Dune", "series_index": 1,
+        }).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"series": ""})
+        assert resp.status_code == 200
+        assert resp.json()["series_id"] is None
+        assert resp.json()["series_name"] is None
+        assert resp.json()["series_index"] is None
+
+    def test_patch_series_switch(self, client):
+        book = client.post("/api/v1/books", json={
+            "title": "Dune", "series": "Les Dune", "series_index": 1,
+        }).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={
+            "series": "Dune Universe", "series_index": 3,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["series_name"] == "Dune Universe"
+        assert resp.json()["series_index"] == 3
+
+
+class TestPriceAndPurchase:
+    """Prix payé / date d'achat : un champ chacun, JAMAIS en wishlist
+    (le prix y serait « constaté », pas « payé » — décision produit 15/08)."""
+
+    def test_price_on_owned_book(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Dune", "price_paid": 12.99, "purchased_at": "2026-08-10",
+        })
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["price_paid"] == 12.99
+        assert resp.json()["purchased_at"] == "2026-08-10"
+
+    def test_wishlist_with_price_rejected_at_create(self, client):
+        resp = client.post("/api/v1/books", json={
+            "title": "Souhait", "status": "wishlist", "price_paid": 10,
+        })
+        assert resp.status_code == 422
+
+    def test_patch_price_on_wishlist_rejected(self, client):
+        book = client.post("/api/v1/books", json={"title": "S", "status": "wishlist"}).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"price_paid": 9.99})
+        assert resp.status_code == 422
+
+    def test_moving_owned_book_to_wishlist_with_price_rejected(self, client):
+        book = client.post("/api/v1/books", json={"title": "Dune", "price_paid": 15}).json()
+        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "wishlist"})
+        assert resp.status_code == 422
+        # Le livre est resté inchangé (pas de commit partiel).
+        assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "tbr"
+
+    def test_clear_price_before_wishlist_ok(self, client):
+        book = client.post("/api/v1/books", json={"title": "Dune", "price_paid": 15}).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={
+            "status": "wishlist", "price_paid": None, "purchased_at": None,
+        })
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "wishlist"
+        assert resp.json()["price_paid"] is None
+
+
+class TestPrimaryReading:
+    """Livre « en cours » principal : flag exclusif parmi les `reading`
+    (index partiel unique en base), désignation manuelle via PATCH."""
+
+    def _make_reading(self, client, title):
+        book = client.post("/api/v1/books", json={"title": title}).json()
+        client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        return book
+
+    def test_set_and_unset(self, client):
+        book = self._make_reading(client, "A")
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"is_primary_reading": True})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_primary_reading"] is True
+
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"is_primary_reading": False})
+        assert resp.json()["is_primary_reading"] is False
+
+    def test_exclusive_switch(self, client):
+        """Désigner B déset automatiquement A (un seul vrai à la fois)."""
+        a = self._make_reading(client, "A")
+        b = self._make_reading(client, "B")
+        client.patch(f"/api/v1/books/{a['id']}", json={"is_primary_reading": True})
+
+        resp = client.patch(f"/api/v1/books/{b['id']}", json={"is_primary_reading": True})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_primary_reading"] is True
+        assert client.get(f"/api/v1/books/{a['id']}").json()["is_primary_reading"] is False
+
+    def test_primary_requires_reading_status(self, client):
+        book = client.post("/api/v1/books", json={"title": "TBR"}).json()  # tbr
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"is_primary_reading": True})
+        assert resp.status_code == 422
+
+
+class TestTbrRank:
+    """Pile à lire = sélection ordonnée (15/08) : rang distinct du statut."""
+
+    def test_rank_exposed_and_cleared(self, client):
+        book = client.post("/api/v1/books", json={"title": "Dune"}).json()
+        assert book["tbr_rank"] is None
+
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"tbr_rank": 2})
+        assert resp.status_code == 200
+        assert resp.json()["tbr_rank"] == 2
+
+        # Quitter la PAL libère le rang (règle dérivée du statut).
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"status": "reading"})
+        assert resp.json()["tbr_rank"] is None
+
+    def test_rank_forced_null_outside_tbr(self, client):
+        book = client.post("/api/v1/books", json={"title": "X"}).json()
+        client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"tbr_rank": 5})
+        assert resp.json()["tbr_rank"] is None  # pas de rang hors de la PAL
+
+    def test_sort_tbr_rank_nulls_last(self, client):
+        r3 = client.post("/api/v1/books", json={"title": "C"}).json()
+        r1 = client.post("/api/v1/books", json={"title": "A"}).json()
+        r2 = client.post("/api/v1/books", json={"title": "B"}).json()
+        unr = client.post("/api/v1/books", json={"title": "Sans rang"}).json()
+        client.patch(f"/api/v1/books/{r1['id']}", json={"tbr_rank": 1})
+        client.patch(f"/api/v1/books/{r2['id']}", json={"tbr_rank": 2})
+        client.patch(f"/api/v1/books/{r3['id']}", json={"tbr_rank": 3})
+
+        resp = client.get("/api/v1/books", params={"status": "tbr", "sort": "tbr_rank"})
+        assert resp.status_code == 200
+        titles = [b["title"] for b in resp.json()["items"]]
+        assert titles == ["A", "B", "C", "Sans rang"]  # sans rang en dernier
+
+
 class TestDeleteBook:
     def test_delete(self, client):
         book = client.post("/api/v1/books", json={"title": "À jeter"}).json()

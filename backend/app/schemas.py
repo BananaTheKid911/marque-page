@@ -10,6 +10,9 @@ Conventions :
 - Les URLs de couverture servies sont toujours locales (`/covers/...`).
 """
 
+from decimal import Decimal
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
@@ -18,6 +21,10 @@ from pydantic import BaseModel, Field, field_validator
 
 #: Statuts de livre valides (SPEC.md §2).
 BOOK_STATUSES = {"wishlist", "tbr", "reading", "read", "dnf", "on_hold"}
+
+#: Formats non exclusifs d'un livre (décision produit 15/08), en accord avec
+#: la CHECK constraint `ck_book_format_type` de la table `book_format`.
+BOOK_FORMAT_TYPES = ("physique", "digital", "audio")
 
 
 class CoverCandidate(BaseModel):
@@ -81,16 +88,42 @@ class CoverPayload(BaseModel):
 # BOOK — CRUD
 # ---------------------------------------------------------------------------
 
+class BookFormatOut(BaseModel):
+    """Un format de livre tel que renvoyé par l'API.
+
+    `type` et `owned` sont portés PAR format (décision produit 15/08) : un
+    livre peut avoir le papier acheté (`owned=true`) et le digital emprunté
+    (`owned=false`) — deux lignes distinctes de `book_format`.
+    """
+
+    type: Literal["physique", "digital", "audio"]
+    owned: bool
+
+
+class BookFormatIn(BaseModel):
+    """Entrée d'un format sur create/patch. `owned` est explicite (le front
+    décide du défaut visuel) ; les doublons de `type` sont rejetés par le
+    validator du payload parent."""
+
+    type: Literal["physique", "digital", "audio"]
+    owned: bool
+
+
 class BookCreate(BaseModel):
     """Création d'un livre (depuis lookup ou manuel). Tous les champs sont
     optionnels sauf `title`. `cover_url` déclenche le téléchargement local.
-    `tags` et `genres` sont des listes de noms, upsertées dans `label`."""
+    `tags` et `genres` sont des listes de noms, upsertées dans `label`.
+    `series` est un NOM de série, upserté par nom unique (table `series`) ;
+    `formats` remplace la liste complète des formats du livre."""
 
     title: str = Field(min_length=1, max_length=500)
     subtitle: str | None = Field(default=None, max_length=500)
     authors: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)
+    series: str | None = Field(default=None, max_length=300)  # nom, upserté
+    series_index: float | None = Field(default=None, ge=0)  # décimales : 1.5 hors-série
+    formats: list[BookFormatIn] | None = None
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -103,6 +136,11 @@ class BookCreate(BaseModel):
     rating: float | None = Field(default=None, ge=0.5, le=5.0)
     current_page: int = Field(default=0, ge=0)
     acquired_date: str | None = None
+    price_paid: float | None = Field(default=None, ge=0)  # jamais en wishlist
+    purchased_at: str | None = None  # jamais en wishlist
+    is_primary_reading: bool = False  # exclusif parmi les reading
+    tbr_rank: int | None = Field(default=None, ge=1)  # sélection PAL, hors statut
+    tbr_note: str | None = Field(default=None, max_length=2000)
     openlibrary_work: str | None = None
     openlibrary_edition: str | None = None
     google_books_id: str | None = None
@@ -125,17 +163,35 @@ class BookCreate(BaseModel):
             raise ValueError("owned doit valoir 0 ou 1")
         return v
 
+    @field_validator("formats")
+    @classmethod
+    def _check_formats(cls, v: list[BookFormatIn] | None) -> list[BookFormatIn] | None:
+        if v is None:
+            return v
+        seen: set[str] = set()
+        for fmt in v:
+            if fmt.type in seen:
+                raise ValueError(f"format dupliqué : {fmt.type!r}")
+            seen.add(fmt.type)
+        return v
+
 
 class BookUpdate(BaseModel):
-    """Mise à jour partielle d'un livre. `authors`, `tags` et `genres`
-    remplaçant la liste complète quand fournis (une liste vide les vide).
-    `cover_url` déclenche un nouveau téléchargement local."""
+    """Mise à jour partielle d'un livre. `authors`, `tags`, `genres` et
+    `formats` remplaçant la liste complète quand fournis (une liste vide les
+    vide). `cover_url` déclenche un nouveau téléchargement local.
+    `series` : nom upserté ; une chaîne vide retire la série (`None` = ne
+    pas toucher). `is_primary_reading=true` désigne le livre principal et
+    déset les autres (`false` le déset)."""
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     subtitle: str | None = Field(default=None, max_length=500)
     authors: list[str] | None = None
     tags: list[str] | None = None
     genres: list[str] | None = None
+    series: str | None = Field(default=None, max_length=300)  # "" = retirer
+    series_index: float | None = Field(default=None, ge=0)
+    formats: list[BookFormatIn] | None = None
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -148,6 +204,11 @@ class BookUpdate(BaseModel):
     rating: float | None = Field(default=None, ge=0.5, le=5.0)
     current_page: int | None = Field(default=None, ge=0)
     acquired_date: str | None = None
+    price_paid: float | None = Field(default=None, ge=0)
+    purchased_at: str | None = None
+    is_primary_reading: bool | None = None
+    tbr_rank: int | None = Field(default=None, ge=1)
+    tbr_note: str | None = Field(default=None, max_length=2000)
     openlibrary_work: str | None = None
     openlibrary_edition: str | None = None
     google_books_id: str | None = None
@@ -170,6 +231,18 @@ class BookUpdate(BaseModel):
             raise ValueError("owned doit valoir 0 ou 1")
         return v
 
+    @field_validator("formats")
+    @classmethod
+    def _check_formats(cls, v: list[BookFormatIn] | None) -> list[BookFormatIn] | None:
+        if v is None:
+            return v
+        seen: set[str] = set()
+        for fmt in v:
+            if fmt.type in seen:
+                raise ValueError(f"format dupliqué : {fmt.type!r}")
+            seen.add(fmt.type)
+        return v
+
 
 class StatusUpdate(BaseModel):
     """POST /books/{id}/status — déplacement rapide entre statuts (§5).
@@ -190,10 +263,13 @@ class StatusUpdate(BaseModel):
 
 
 class BookOut(BaseModel):
-    """Réponse `book` : modèle SQLModel + auteurs/tags/genres résolus + URLs locales.
+    """Réponse `book` : modèle SQLModel + auteurs/tags/genres/formats/série
+    résolus + URLs locales.
 
     `cover_url`/`cover_thumb_url` sont construits depuis `cover_path`
     (chemin relatif au dossier `covers/`), servis par StaticFiles.
+    `is_primary_reading` est un booléen (la colonne est un 0/1) ;
+    `formats` liste les formats avec leur possession par format.
     """
 
     id: int
@@ -202,6 +278,20 @@ class BookOut(BaseModel):
     authors: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)
+    series_id: int | None = None
+    series_name: str | None = None
+    series_index: float | None = None
+    formats: list[BookFormatOut] = Field(default_factory=list)
+
+    @field_validator("series_index", mode="before")
+    @classmethod
+    def _series_index_to_float(cls, v):
+        """La colonne NUMERIC de SQLite est relue en Decimal : le normaliser
+        en float à la validation, sinon la sérialisation émet un warning
+        Pydantic (type attendu `float`)."""
+        if isinstance(v, Decimal):
+            return float(v)
+        return v
     isbn10: str | None = None
     isbn13: str | None = None
     publisher: str | None = None
@@ -219,6 +309,11 @@ class BookOut(BaseModel):
     current_page: int
     current_percent: float
     acquired_date: str | None = None
+    price_paid: float | None = None
+    purchased_at: str | None = None
+    is_primary_reading: bool = False
+    tbr_rank: int | None = None
+    tbr_note: str | None = None
     openlibrary_work: str | None = None
     openlibrary_edition: str | None = None
     google_books_id: str | None = None
@@ -263,6 +358,20 @@ class LabelOut(BaseModel):
 class LabelList(BaseModel):
     items: list[LabelOut]
     total: int
+
+
+class SeriesOut(BaseModel):
+    """Une série (décision produit 15/08) : nom unique + nombre de livres
+    liés. Le rang d'un tome vit sur le livre (`series_index`), pas ici."""
+
+    id: int
+    name: str
+    book_count: int = 0
+
+
+class SeriesBooks(BaseModel):
+    series: SeriesOut
+    books: list[BookOut]
 
 
 # ---------------------------------------------------------------------------

@@ -22,15 +22,26 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import exists
+from sqlalchemy import exists, update
 from sqlmodel import Session, func, select
 from starlette.datastructures import UploadFile
 
 from app import config
 from app.db import get_session
-from app.models import Author, Book, BookAuthor, BookLabel, Label, ReadEntry
+from app.models import (
+    Author,
+    Book,
+    BookAuthor,
+    BookFormat,
+    BookLabel,
+    Label,
+    ReadEntry,
+    Series,
+)
 from app.schemas import (
     BookCreate,
+    BookFormatIn,
+    BookFormatOut,
     BookList,
     BookOut,
     BookUpdate,
@@ -44,7 +55,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/books", tags=["books"])
 
 # Tri accepté : colonnes sûres (pas d'interpolation SQL).
-_SORT_COLUMNS = {"title": Book.title, "created": Book.created_at, "rating": Book.rating}
+_SORT_COLUMNS = {
+    "title": Book.title,
+    "created": Book.created_at,
+    "rating": Book.rating,
+    "tbr_rank": Book.tbr_rank,  # Pile à lire = sélection ordonnée (15/08)
+}
 
 # Client HTTP singleton pour le téléchargement des couvertures — fermé dans
 # le lifespan de main.py. Un client par requête serait jetable et sans gain.
@@ -70,9 +86,19 @@ def _now_iso() -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _book_out(book: Book, authors: list[str] | None = None,
-              tags: list[str] | None = None, genres: list[str] | None = None) -> BookOut:
-    """Construit BookOut : taxonomie résolue + URLs de couverture locales."""
+def _book_out(
+    session: Session,
+    book: Book,
+    authors: list[str] | None = None,
+    tags: list[str] | None = None,
+    genres: list[str] | None = None,
+) -> BookOut:
+    """Construit BookOut : taxonomie + formats + série résolus, URLs locales.
+
+    La session est passée explicitement pour résoudre `formats` et
+    `series_name` (des colonnes d'autres tables) au même instant que la
+    taxonomie — le coût est le même N+1 assumé qu'auteurs/tags/genres.
+    """
     out = BookOut.model_validate(book.model_dump())
     if authors is not None:
         out.authors = authors
@@ -80,6 +106,8 @@ def _book_out(book: Book, authors: list[str] | None = None,
         out.tags = tags
     if genres is not None:
         out.genres = genres
+    out.formats = _get_formats(session, book.id)
+    out.series_name = _get_series_name(session, book)
     if book.cover_path:
         thumb_rel = str(Path(book.cover_path).with_name("thumb.jpg"))
         out.cover_url = f"/covers/{book.cover_path}"
@@ -105,6 +133,89 @@ def _apply_status_rules(book: Book, prev_status: str | None = None) -> None:
             book.tbr_rank = None
         if prev_status == "reading" and book.status != "reading":
             book.is_primary_reading = 0
+    if book.status != "tbr":
+        book.tbr_rank = None  # règle dérivée : pas de rang hors de la PAL
+
+
+def _check_price_allowed(book: Book) -> None:
+    """Un livre en wishlist ne porte jamais de prix payé ni de date d'achat
+    (décision produit 15/08 : le prix y serait « constaté », pas « payé »).
+
+    On REFUSE (422) plutôt que de vider silencieusement : effacer le prix
+    réel d'un livre déjà lu est une décision qui appartient à l'utilisateur.
+    """
+    if book.status == "wishlist" and (
+        book.price_paid is not None or book.purchased_at is not None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Un livre en wishlist ne porte ni price_paid ni purchased_at",
+        )
+
+
+def _get_formats(session: Session, book_id: int) -> list[BookFormatOut]:
+    """Formats du livre, triés par type (ordre stable pour le front)."""
+    rows = session.exec(
+        select(BookFormat)
+        .where(BookFormat.book_id == book_id)
+        .order_by(BookFormat.format)
+    ).all()
+    return [BookFormatOut(type=r.format, owned=bool(r.owned)) for r in rows]
+
+
+def _replace_formats(session: Session, book: Book, formats: list[BookFormatIn]) -> None:
+    """Remplacement complet des formats (pattern authors/tags).
+
+    `book.id` doit être connu (flush en création). La liste est déjà validée
+    (types + pas de doublon) par le schéma. L'appelant commit.
+    """
+    for link in session.exec(
+        select(BookFormat).where(BookFormat.book_id == book.id)
+    ).all():
+        session.delete(link)
+    for fmt in formats:
+        session.add(BookFormat(book_id=book.id, format=fmt.type, owned=int(fmt.owned)))
+
+
+def _upsert_series(session: Session, name: str) -> Series | None:
+    """Série par nom (table unique) ; une chaîne vide retire la série."""
+    name = name.strip()
+    if not name:
+        return None
+    series = session.exec(select(Series).where(Series.name == name)).first()
+    if series is None:
+        series = Series(name=name)
+        session.add(series)
+        session.flush()  # récupère series.id
+    return series
+
+
+def _get_series_name(session: Session, book: Book) -> str | None:
+    if book.series_id is None:
+        return None
+    series = session.get(Series, book.series_id)
+    return series.name if series is not None else None
+
+
+def _set_primary_reading(session: Session, book: Book) -> None:
+    """Désigne le livre principal : flag exclusif parmi les `reading`.
+
+    Contrainte réelle au niveau base (index partiel unique
+    `uq_book_primary_reading`) : il faut désactiver l'actuel AVANT de poser
+    le nouveau, dans la même transaction — sinon l'UPDATE du nouveau
+    déclencherait une IntegrityError.
+    """
+    if book.status != "reading":
+        raise HTTPException(
+            status_code=422,
+            detail="is_primary_reading ne se désigne que sur un livre en cours (status=reading)",
+        )
+    session.exec(
+        update(Book)
+        .where(Book.is_primary_reading == 1, Book.id != book.id)
+        .values(is_primary_reading=0)
+    )
+    book.is_primary_reading = 1
 
 
 def _recompute_percent(book: Book) -> None:
@@ -227,7 +338,9 @@ def list_books(
 
     Filtres : `status`, `tag` (nom exact), `genre` (nom exact), `author`
     (nom exact), `owned` (0/1), `q` (sous-chaîne titre/sous-titre).
-    `sort` : `title` | `created` (défaut, plus récent d'abord) | `rating`.
+    `sort` : `title` | `created` (défaut, plus récent d'abord) | `rating`
+    | `tbr_rank` (Pile à lire : ordre de la sélection, livres sans rang en
+    fin de liste).
     """
     stmt = select(Book)
 
@@ -270,7 +383,12 @@ def list_books(
     total = session.exec(select(func.count()).select_from(stmt.subquery())).one()
 
     sort_col = _SORT_COLUMNS.get(sort, Book.created_at)
-    if sort == "created":
+    if sort == "tbr_rank":
+        # NULLS en dernier : les livres de la PAL non encore rangés ne
+        # passent pas devant les rangs 1..n (SQLite trie NULL en premier
+        # en ASC — `is_(None)` renverse la priorité).
+        stmt = stmt.order_by(Book.tbr_rank.is_(None), Book.tbr_rank.asc())
+    elif sort == "created":
         stmt = stmt.order_by(sort_col.desc())
     else:
         stmt = stmt.order_by(sort_col.asc())
@@ -281,7 +399,7 @@ def list_books(
     items = []
     for b in books:
         tags, genres = _get_labels(session, b.id)
-        items.append(_book_out(b, _get_author_names(session, b.id), tags, genres))
+        items.append(_book_out(session, b, _get_author_names(session, b.id), tags, genres))
 
     return BookList(items=items, total=total, page=page, page_size=page_size)
 
@@ -298,11 +416,16 @@ async def create_book(
     couverture échoue, rien n'est persisté (pas de livre orphelin).
     """
     data = payload.model_dump(
-        exclude={"authors", "tags", "genres", "cover_url"}
+        exclude={"authors", "tags", "genres", "cover_url", "formats", "series", "is_primary_reading"}
     )
     book = Book(**data)
     _apply_status_rules(book)
     _recompute_percent(book)
+    _check_price_allowed(book)
+    if payload.series is not None:
+        series = _upsert_series(session, payload.series)
+        if series is not None:
+            book.series_id = series.id
     session.add(book)
     session.flush()  # récupère book.id pour le stockage des couvertures
 
@@ -310,6 +433,10 @@ async def create_book(
         _replace_authors(session, book, payload.authors)
     if payload.tags or payload.genres:
         _replace_labels(session, book, payload.tags, payload.genres)
+    if payload.formats:
+        _replace_formats(session, book, payload.formats)
+    if payload.is_primary_reading:
+        _set_primary_reading(session, book)
 
     try:
         if payload.cover_url:
@@ -320,7 +447,7 @@ async def create_book(
     session.commit()
     session.refresh(book)
     tags, genres = _get_labels(session, book.id)
-    return _book_out(book, _get_author_names(session, book.id), tags, genres)
+    return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
 
 @router.get("/{book_id}", response_model=BookOut)
@@ -329,7 +456,7 @@ def get_book(book_id: int, session: Session = Depends(get_session)) -> BookOut:
     if book is None:
         raise HTTPException(status_code=404, detail="Livre introuvable")
     tags, genres = _get_labels(session, book.id)
-    return _book_out(book, _get_author_names(session, book.id), tags, genres)
+    return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
 
 @router.patch("/{book_id}", response_model=BookOut)
@@ -339,14 +466,17 @@ async def update_book(
     client: httpx.AsyncClient = Depends(get_http_client),
     session: Session = Depends(get_session),
 ) -> BookOut:
-    """Mise à jour partielle. `authors`, `tags`, `genres` remplacent leur
-    liste ; `cover_url` déclenche un nouveau téléchargement local."""
+    """Mise à jour partielle. `authors`, `tags`, `genres`, `formats`
+    remplacent leur liste ; `cover_url` déclenche un nouveau téléchargement
+    local ; `series` upserté par nom (chaîne vide = retirer la série) ;
+    `is_primary_reading=true` désigne le livre principal et déset l'actuel."""
     book = session.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Livre introuvable")
 
     data = payload.model_dump(
-        exclude_unset=True, exclude={"authors", "tags", "genres", "cover_url"}
+        exclude_unset=True,
+        exclude={"authors", "tags", "genres", "cover_url", "formats", "series", "is_primary_reading"},
     )
     prev_status = book.status  # avant application du payload : règles de transition
     for field, value in data.items():
@@ -354,6 +484,20 @@ async def update_book(
 
     _apply_status_rules(book, prev_status)
     _recompute_percent(book)
+    _check_price_allowed(book)
+
+    if payload.series is not None:
+        series = _upsert_series(session, payload.series)
+        book.series_id = series.id if series is not None else None
+        if series is None:
+            book.series_index = None  # sans série, pas de numéro de tome
+    if payload.formats is not None:
+        _replace_formats(session, book, payload.formats)
+    if payload.is_primary_reading is not None:
+        if payload.is_primary_reading:
+            _set_primary_reading(session, book)
+        else:
+            book.is_primary_reading = 0
 
     if payload.authors is not None:
         _replace_authors(session, book, payload.authors)
@@ -369,7 +513,7 @@ async def update_book(
     session.commit()
     session.refresh(book)
     tags, genres = _get_labels(session, book.id)
-    return _book_out(book, _get_author_names(session, book.id), tags, genres)
+    return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
 
 @router.delete("/{book_id}", status_code=204)
@@ -402,9 +546,10 @@ def set_status(
 
     `status=read` avec `finished_at` crée une `read_entry` (la date de fin
     appartient à la lecture). `status=wishlist` force `owned=0` et
-    inversement (§2). C'est le chemin MANUEL de la transition
-    `tbr` -> `reading` (les deux chemins automatiques sont le timer et
-    l'import KOReader, cf. sessions.mark_started_reading).
+    inversement (§2) et interdit la présence d'un prix payé. C'est le
+    chemin MANUEL de la transition `tbr` -> `reading` (les deux chemins
+    automatiques sont le timer et l'import KOReader, cf.
+    sessions.mark_started_reading).
     """
     book = session.get(Book, book_id)
     if book is None:
@@ -413,6 +558,7 @@ def set_status(
     prev_status = book.status
     book.status = payload.status
     _apply_status_rules(book, prev_status)
+    _check_price_allowed(book)
     session.add(book)
 
     if payload.status == "read":
@@ -428,7 +574,7 @@ def set_status(
     session.commit()
     session.refresh(book)
     tags, genres = _get_labels(session, book.id)
-    return _book_out(book, _get_author_names(session, book.id), tags, genres)
+    return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
 
 @router.post("/{book_id}/cover", response_model=BookOut)
@@ -467,7 +613,7 @@ async def set_book_cover(
         session.commit()
         session.refresh(book)
         tags, genres = _get_labels(session, book.id)
-        return _book_out(book, _get_author_names(session, book.id), tags, genres)
+        return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
@@ -485,7 +631,7 @@ async def set_book_cover(
         session.commit()
         session.refresh(book)
         tags, genres = _get_labels(session, book.id)
-        return _book_out(book, _get_author_names(session, book.id), tags, genres)
+        return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
 
     raise HTTPException(
         status_code=415,
