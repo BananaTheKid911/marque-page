@@ -31,6 +31,29 @@ export interface Label {
   kind: LabelKind
 }
 
+/**
+ * Série (inspirée de la table `book.series` de KOReader, SPEC.md §4.1) —
+ * concept nouveau, absent du schéma actuel. `Book.seriesIndex` porte le
+ * numéro de tome et autorise les décimales (1.5 pour un hors-série).
+ */
+export interface Series {
+  id: number
+  name: string
+}
+
+/**
+ * Format = physique / digital / audio, non exclusif : un livre peut
+ * cumuler plusieurs formats. `owned` est porté PAR format, pas par livre
+ * — cas réel : édition papier achetée, version numérique seulement
+ * empruntée/lue sans achat.
+ */
+export type BookFormatType = "physique" | "digital" | "audio"
+
+export interface BookFormat {
+  type: BookFormatType
+  owned: boolean
+}
+
 export interface Book {
   id: number
   title: string
@@ -45,6 +68,62 @@ export interface Book {
   /** 0..1 */
   currentPercent: number
   rating: number | null
+  /** métadonnées utilisées par la page Détail — absentes des mocks de grille */
+  publisher?: string | null
+  year?: number | null
+  description?: string | null
+  startedAt?: string | null
+  finishedAt?: string | null
+  /**
+   * Un seul livre `reading` à la fois porte `true` — exclusivité maintenue
+   * à la main dans les mocks (SQLModel/backend tranchera la contrainte
+   * réelle). Choix manuel exposé uniquement depuis BookDetailPage, jamais
+   * depuis la grille Bibliothèque (décision produit du 15/08/2026).
+   */
+  isPrimaryReading?: boolean
+  /** Série et numéro de tome, `null`/absent si le livre n'appartient à aucune série. */
+  seriesId?: number | null
+  seriesIndex?: number | null
+  /** Formats détenus/consultés — non exclusifs, `owned` varie par format. */
+  formats?: BookFormat[]
+  /**
+   * Prix payé et date d'achat, uniques par livre (pas par format). Rempli
+   * seulement au moment de l'achat réel : ne jamais afficher/remplir ces
+   * deux champs pour `status === "wishlist"`.
+   */
+  pricePaid?: number | null
+  purchasedAt?: string | null
+  /**
+   * Pile à lire = liste curatée à la main, distincte du simple filtre
+   * `status === "tbr"` de la Bibliothèque. `tbrRank` porte l'ordre choisi
+   * (1 = prochain lu) ; `tbrNote` est le motif optionnel affiché s'il existe.
+   */
+  tbrRank?: number | null
+  tbrNote?: string | null
+}
+
+/** `reading_session` — SPEC.md §2 et §5 */
+export interface ReadingSession {
+  id: number
+  bookId: number
+  startedAt: string
+  durationSec: number
+  startPage: number | null
+  endPage: number | null
+  pagesRead: number | null
+  source: "manual" | "timer" | "koreader"
+}
+
+/** `highlight` — SPEC.md §2 et §5 */
+export interface Highlight {
+  id: number
+  bookId: number
+  text: string
+  note?: string | null
+  page: number | null
+  chapter?: string | null
+  highlightedAt: string
+  source: "manual" | "koreader"
 }
 
 /** Données affichées par le composant « Reprendre / En cours » */

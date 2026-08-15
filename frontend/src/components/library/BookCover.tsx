@@ -4,6 +4,13 @@ import type { Book } from "@/types/book"
 
 interface BookCoverProps {
   book: Book
+  /**
+   * Badge "T. X" sur le coin de la couverture — affiché uniquement quand
+   * la grille est filtrée/triée par série (LibraryPage passe cette valeur
+   * via BookGrid). Pas un attribut permanent de la couverture : hors
+   * contexte série, la grille n'affiche jamais le numéro de tome.
+   */
+  tomeLabel?: string
 }
 
 /**
@@ -12,7 +19,7 @@ interface BookCoverProps {
  * écrans candidats à une future couleur de signal — non tranchée, donc
  * traité ici en typographie pure (aucune couleur ajoutée).
  */
-export function BookCover({ book }: BookCoverProps) {
+export function BookCover({ book, tomeLabel }: BookCoverProps) {
   const showProgress = book.status === "reading" && book.currentPercent > 0
   const showStatusCaption = book.status === "dnf" || book.status === "on_hold"
 
@@ -26,6 +33,12 @@ export function BookCover({ book }: BookCoverProps) {
             className="h-full w-full object-cover"
             loading="lazy"
           />
+        )}
+
+        {tomeLabel && (
+          <span className="absolute left-1.5 top-1.5 rounded-[2px] border border-line bg-card/90 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] tabular-nums text-ink-soft">
+            {tomeLabel}
+          </span>
         )}
 
         {showProgress && (

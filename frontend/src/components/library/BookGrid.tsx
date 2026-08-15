@@ -1,8 +1,15 @@
+import { formatTome } from "@/lib/format"
 import type { Book } from "@/types/book"
 import { BookCover } from "./BookCover"
 
 interface BookGridProps {
   books: Book[]
+  /**
+   * Vrai quand `books` est déjà filtré+trié par série (LibraryPage).
+   * Change uniquement l'affichage (badge "T. X" par couverture) — le tri
+   * lui-même est la responsabilité de l'appelant, pas de ce composant.
+   */
+  seriesMode?: boolean
 }
 
 /**
@@ -14,7 +21,7 @@ interface BookGridProps {
  *   >= 700px                     : auto-fill, min 118px
  *   >= 1200px ET pointer: coarse : auto-fill, min 132px
  */
-export function BookGrid({ books }: BookGridProps) {
+export function BookGrid({ books, seriesMode = false }: BookGridProps) {
   if (books.length === 0) {
     return (
       <p className="py-16 text-center text-[15px] text-ink-mute">
@@ -31,7 +38,14 @@ export function BookGrid({ books }: BookGridProps) {
     >
       {books.map((book) => (
         <li key={book.id}>
-          <BookCover book={book} />
+          <BookCover
+            book={book}
+            tomeLabel={
+              seriesMode && book.seriesIndex != null
+                ? `T. ${formatTome(book.seriesIndex)}`
+                : undefined
+            }
+          />
         </li>
       ))}
     </ul>

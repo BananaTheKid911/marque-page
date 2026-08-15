@@ -8,14 +8,22 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import type { Author, Book, Label } from "@/types/book"
+import type { Author, Book, Label, Series } from "@/types/book"
 import { STATUS_LABELS } from "@/lib/mock-data"
 
 interface LibraryFiltersProps {
   authors: Author[]
   genres: Label[]
   tags: Label[]
+  series: Series[]
   activeStatus: Book["status"] | "all"
+  /**
+   * Série active (choisie via QA route `?serie=<id>` — voir LibraryPage).
+   * Contrairement aux autres filtres, la choisir change le COMPORTEMENT
+   * de la grille (tri par tome + badge), pas juste son contenu : c'est
+   * LibraryPage qui porte cette différence, pas ce composant.
+   */
+  activeSeriesId?: number | "all"
 }
 
 const STATUS_ORDER: (Book["status"] | "all")[] = [
@@ -37,7 +45,9 @@ export function LibraryFilters({
   authors,
   genres,
   tags,
+  series,
   activeStatus,
+  activeSeriesId = "all",
 }: LibraryFiltersProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -114,6 +124,22 @@ export function LibraryFilters({
             ))}
           </SelectContent>
         </Select>
+
+        {series.length > 0 && (
+          <Select defaultValue={String(activeSeriesId)}>
+            <SelectTrigger className="shrink-0">
+              <SelectValue placeholder="Série" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toutes les séries</SelectItem>
+              {series.map((s) => (
+                <SelectItem key={s.id} value={String(s.id)}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
     </div>
   )

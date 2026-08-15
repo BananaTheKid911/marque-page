@@ -172,6 +172,12 @@
   html {
     @apply font-sans;
     color-scheme: light;
+    height: 100%;
+  }
+
+  body,
+  #root {
+    height: 100%;
   }
 
   /* focus visible partout, sans dépendre d'une couleur d'accent */
@@ -217,7 +223,12 @@
 @layer components {
   .shell-frame {
     container-type: inline-size;
-    height: 100dvh;
+    /* 100% et non 100dvh : le composant ne suppose plus qu'il est collé à
+       la racine du document — App.tsx (barre de QA temporaire) lui donne
+       sa hauteur via un ancêtre flex. La chaîne html/body/#root ci-dessus
+       fournit une hauteur définie à 100% pour que ça reste correct même
+       sans ce wrapper. */
+    height: 100%;
   }
 
   .shell {
