@@ -47,6 +47,7 @@ from app.schemas import (
     BookUpdate,
     CoverPayload,
     StatusUpdate,
+    TbrReorder,
 )
 from app.services.covers import CoverError, download_and_store, store_image
 
@@ -534,6 +535,61 @@ def delete_book(book_id: int, session: Session = Depends(get_session)) -> None:
             book_dir.rmdir()
     except OSError:
         logger.warning("nettoyage couverture %s échoué", book_dir)
+
+
+@router.post("/tbr/reorder", response_model=BookList)
+def reorder_tbr(
+    payload: TbrReorder,
+    session: Session = Depends(get_session),
+) -> BookList:
+    """Réordonne la Pile à lire (décision produit 15/08 : sélection curatée).
+
+    `payload.book_ids` définit l'ordre COMPLET voulu (1 = prochain lu) et
+    la renumérotation se fait en une transaction : tous les `tbr` perdent
+    leur rang, puis les livres listés reçoivent 1..n. Les livres encore
+    `tbr` non listés restent donc en fin de liste (rang NULL).
+
+    Strict par design : un id inexistant, non-`tbr` ou dupliqué renvoie
+    422 AVANT toute modification — une liste périmée doit être rechargée
+    par le front, pas corrigée ici (une session timer ouverte entre le
+    chargement et le drag fait sortir un livre de la PAL).
+    """
+    # Déclarée avant `POST /{book_id}/status` : sinon Starlette matcherait
+    # « tbr » contre `book_id` et répondrait 422 au lieu d'appeler ici.
+
+    books_by_id: dict[int, Book] = {}
+    for book_id in payload.book_ids:
+        book = session.get(Book, book_id)
+        if book is None:
+            raise HTTPException(
+                status_code=422, detail=f"Livre {book_id} introuvable"
+            )
+        if book.status != "tbr":
+            raise HTTPException(
+                status_code=422,
+                detail=f"Le livre {book_id} n'est pas dans la Pile à lire (status={book.status})",
+            )
+        books_by_id[book_id] = book
+
+    # La liste fournie EST la sélection : dérangement global puis renumérotation.
+    session.exec(update(Book).where(Book.status == "tbr").values(tbr_rank=None))
+    for rank, book_id in enumerate(payload.book_ids, start=1):
+        books_by_id[book_id].tbr_rank = rank
+
+    session.commit()
+
+    # Réponse : la PAL dans son nouvel ordre (rangés d'abord, sans rang en
+    # fin), prête à remplacer la liste du front sans round-trip.
+    books = session.exec(
+        select(Book)
+        .where(Book.status == "tbr")
+        .order_by(Book.tbr_rank.is_(None), Book.tbr_rank.asc())
+    ).all()
+    items = []
+    for b in books:
+        tags, genres = _get_labels(session, b.id)
+        items.append(_book_out(session, b, _get_author_names(session, b.id), tags, genres))
+    return BookList(items=items, total=len(items), page=1, page_size=len(items))
 
 
 @router.post("/{book_id}/status", response_model=BookOut)

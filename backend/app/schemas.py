@@ -262,6 +262,26 @@ class StatusUpdate(BaseModel):
         return v
 
 
+class TbrReorder(BaseModel):
+    """POST /books/tbr/reorder — nouvel ordre de la Pile à lire (15/08).
+
+    `book_ids` porte l'ordre COMPLET voulu (1 = prochain lu) : la liste
+    fournie est la sélection, les livres encore `tbr` non listés perdent
+    leur rang (fin de liste). Chaque id doit référencer un livre `tbr`
+    existant, sans doublon — toute entrée invalide est rejetée (422) avant
+    toute modification (atomicité).
+    """
+
+    book_ids: list[int] = Field(min_length=1, max_length=500)
+
+    @field_validator("book_ids")
+    @classmethod
+    def _check_unique(cls, v: list[int]) -> list[int]:
+        if len(v) != len(set(v)):
+            raise ValueError("book_ids ne doit pas contenir de doublon")
+        return v
+
+
 class BookOut(BaseModel):
     """Réponse `book` : modèle SQLModel + auteurs/tags/genres/formats/série
     résolus + URLs locales.

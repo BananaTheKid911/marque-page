@@ -564,6 +564,95 @@ class TestTbrRank:
         assert titles == ["A", "B", "C", "Sans rang"]  # sans rang en dernier
 
 
+class TestTbrReorder:
+    """POST /books/tbr/reorder — renumérotation 1..n en une transaction."""
+
+    def _make_tbr(self, client, title, rank=None):
+        book = client.post("/api/v1/books", json={"title": title}).json()
+        if rank:
+            client.patch(f"/api/v1/books/{book['id']}", json={"tbr_rank": rank})
+        return book
+
+    def _pal_titles_and_ranks(self, client):
+        listing = client.get("/api/v1/books", params={"status": "tbr", "sort": "tbr_rank"}).json()
+        return (
+            [b["title"] for b in listing["items"]],
+            [b["tbr_rank"] for b in listing["items"]],
+        )
+
+    def test_reorder_renumbers(self, client):
+        a = self._make_tbr(client, "A", 3)
+        b = self._make_tbr(client, "B", 1)
+        c = self._make_tbr(client, "C", 2)
+
+        resp = client.post("/api/v1/books/tbr/reorder", json={
+            "book_ids": [c["id"], a["id"], b["id"]],
+        })
+        assert resp.status_code == 200, resp.text
+        assert [b["title"] for b in resp.json()["items"]] == ["C", "A", "B"]
+
+        titles, ranks = self._pal_titles_and_ranks(client)
+        assert titles == ["C", "A", "B"]
+        assert ranks == [1, 2, 3]
+
+    def test_unlisted_tbr_lose_rank(self, client):
+        """La liste fournie est la sélection : un tbr non listé retombe en
+        fin de liste, rang NULL."""
+        a = self._make_tbr(client, "A", 2)
+        b = self._make_tbr(client, "B")
+        c = self._make_tbr(client, "C", 1)
+
+        resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": [a["id"], b["id"]]})
+        assert resp.status_code == 200
+
+        titles, ranks = self._pal_titles_and_ranks(client)
+        assert titles == ["A", "B", "C"]
+        assert ranks == [1, 2, None]
+
+    def test_non_tbr_book_rejected(self, client):
+        book = self._make_tbr(client, "X")
+        client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": [book["id"]]})
+        assert resp.status_code == 422
+
+    def test_missing_book_rejected(self, client):
+        resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": [9999]})
+        assert resp.status_code == 422
+
+    def test_duplicate_rejected(self, client):
+        book = self._make_tbr(client, "A")
+        resp = client.post("/api/v1/books/tbr/reorder", json={
+            "book_ids": [book["id"], book["id"]],
+        })
+        assert resp.status_code == 422
+
+    def test_empty_list_rejected(self, client):
+        resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": []})
+        assert resp.status_code == 422
+
+    def test_rejected_reorder_changes_nothing(self, client):
+        """Atomicité : un id invalide dans la liste = 422, et aucun rang
+        existant n'est modifié."""
+        a = self._make_tbr(client, "A", 2)
+        b = self._make_tbr(client, "B", 1)
+        bad = client.post("/api/v1/books", json={"title": "Bad"}).json()
+        client.post(f"/api/v1/books/{bad['id']}/status", json={"status": "reading"})
+
+        resp = client.post("/api/v1/books/tbr/reorder", json={
+            "book_ids": [a["id"], bad["id"]],
+        })
+        assert resp.status_code == 422
+
+        _, ranks = self._pal_titles_and_ranks(client)
+        assert ranks == [1, 2]  # B(1), A(2) — inchangés
+
+    def test_wishlist_book_not_part_of_tbr(self, client):
+        """Un livre wishlist n'est pas dans la PAL : rejeté comme non-tbr."""
+        book = client.post("/api/v1/books", json={"title": "W", "status": "wishlist"}).json()
+        resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": [book["id"]]})
+        assert resp.status_code == 422
+
+
 class TestDeleteBook:
     def test_delete(self, client):
         book = client.post("/api/v1/books", json={"title": "À jeter"}).json()
