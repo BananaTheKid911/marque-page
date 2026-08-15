@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#1e2b2b"/>
+  <rect x="0" y="410" width="400" height="6" fill="#cdbf9e"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#cdbf9e"><tspan x="40" y="208">Ce que la mer</tspan><tspan x="40" y="252">efface</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#cdbf9e" opacity="0.88">L. Peyrat</text>
+</svg>

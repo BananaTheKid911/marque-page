@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#e4dcc8"/>
+  <rect x="0" y="410" width="400" height="6" fill="#1b1611"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#1b1611"><tspan x="40" y="208">Journal d'un</tspan><tspan x="40" y="252">passage</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#1b1611" opacity="0.88">A. Coutin</text>
+</svg>

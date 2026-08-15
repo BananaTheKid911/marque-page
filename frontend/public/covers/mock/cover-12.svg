@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#3c2f4a"/>
+  <rect x="0" y="410" width="400" height="6" fill="#ded4c8"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#ded4c8"><tspan x="40" y="208">La Chambre</tspan><tspan x="40" y="252">commune</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#ded4c8" opacity="0.88">D. Ashworth</text>
+</svg>

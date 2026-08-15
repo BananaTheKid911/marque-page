@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#b5792f"/>
+  <rect x="0" y="410" width="400" height="6" fill="#231a12"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#231a12"><tspan x="40" y="208">Cartographie</tspan><tspan x="40" y="252">du doute</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#231a12" opacity="0.88">T. Havel</text>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#7a2f45"/>
+  <rect x="0" y="410" width="400" height="6" fill="#f1e4d3"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#f1e4d3"><tspan x="40" y="230">Filature</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#f1e4d3" opacity="0.88">R. Ostrander</text>
+</svg>

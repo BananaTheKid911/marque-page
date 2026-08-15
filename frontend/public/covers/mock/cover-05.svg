@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600" viewBox="0 0 400 600">
+  <rect width="400" height="600" fill="#6b3f36"/>
+  <rect x="0" y="410" width="400" height="6" fill="#e7d9c3"/>
+  <text x="40" font-family="Georgia, 'Iowan Old Style', serif" font-size="38" font-weight="600" fill="#e7d9c3"><tspan x="40" y="208">Trois saisons</tspan><tspan x="40" y="252">ailleurs</tspan></text>
+  <text x="40" y="460" font-family="Georgia, 'Iowan Old Style', serif" font-size="19" letter-spacing="1" fill="#e7d9c3" opacity="0.88">N. Ferrant</text>
+</svg>
