@@ -25,6 +25,17 @@ import type {
   SeriesBooks,
   SessionList,
 } from "@/types/book"
+import type {
+  KoreaderConfirmRequest,
+  KoreaderConfirmResult,
+  KoreaderPreview,
+} from "@/types/koreader"
+import type {
+  StatsBreakdown,
+  StatsOverview,
+  StatsRange,
+  StatsTimeline,
+} from "@/types/stats"
 
 const API_BASE = "/api/v1"
 
@@ -79,8 +90,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     res = await fetch(`${API_BASE}${path}`, {
       method,
       signal,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      // FormData : le navigateur pose lui-même le boundary (jamais
+      // d'en-tête Content-Type explicite, sinon le serveur ne le lit pas).
+      headers: body instanceof FormData ? undefined : body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch {
     // fetch ne rejette que sur erreur réseau (offline, serveur down).
@@ -219,6 +232,73 @@ export interface BooksQuery {
   sort?: "title" | "created" | "rating" | "tbr_rank"
   page?: number
   page_size?: number
+}
+
+/** POST /books — création depuis lookup ou manuelle (snake_case, BookCreate). */
+export interface BookCreatePayload {
+  title: string
+  subtitle?: string | null
+  authors?: string[]
+  tags?: string[]
+  genres?: string[]
+  series?: string | null
+  series_index?: number | null
+  formats?: BookFormat[]
+  isbn10?: string | null
+  isbn13?: string | null
+  publisher?: string | null
+  published_date?: string | null
+  page_count?: number | null
+  language?: string | null
+  description?: string | null
+  status?: BookStatus
+  price_paid?: number | null
+  purchased_at?: string | null
+  tbr_rank?: number | null
+  tbr_note?: string | null
+  /** variante choisie : le backend la télécharge localement (jamais de hotlink) */
+  cover_url?: string | null
+  cover_source?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Lookup (§3) — recherche ISBN/titre et variantes de couverture
+// ---------------------------------------------------------------------------
+
+interface LookupMetadataWire {
+  title: string
+  subtitle: string | null
+  authors: string[]
+  isbn10: string | null
+  isbn13: string | null
+  publisher: string | null
+  published_date: string | null
+  page_count: number | null
+  language: string | null
+  description: string | null
+  openlibrary_work: string | null
+  openlibrary_edition: string | null
+  google_books_id: string | null
+}
+
+/** `LookupResult` — réponse de GET /lookup?isbn= (métadonnées + variantes). */
+export interface LookupResultWire extends LookupMetadataWire {
+  covers: CoverVariantWire[]
+  source: string // "openlibrary" | "google"
+}
+
+/** `LookupCandidate` — un candidat de GET /lookup?q= (top 10). */
+export interface LookupCandidateWire extends LookupMetadataWire {
+  cover_thumb: string | null
+  source: string // "openlibrary" | "google"
+}
+
+/** `CoverCandidate` — une variante de couverture (URL externe, jamais servie). */
+export interface CoverVariantWire {
+  url: string
+  width: number | null
+  height: number | null
+  source: string // "openlibrary" | "google"
 }
 
 // ---------------------------------------------------------------------------
@@ -400,5 +480,167 @@ export async function listSeriesBooks(seriesId: number): Promise<SeriesBooks> {
   return {
     series: { id: data.series.id, name: data.series.name, bookCount: data.series.book_count },
     books: data.books.map(mapBook),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Création
+// ---------------------------------------------------------------------------
+
+/** POST /books — création depuis lookup ou manuelle. */
+export async function createBook(payload: BookCreatePayload): Promise<Book> {
+  const data = await request<BookOutWire>(`/books`, { method: "POST", body: payload })
+  return mapBook(data)
+}
+
+// ---------------------------------------------------------------------------
+// Lookup (§3) — tous les appels externes partent du backend
+// ---------------------------------------------------------------------------
+
+/** GET /lookup?isbn= — métadonnées + variantes de couverture. 404 = ISBN inconnu. */
+export async function lookupByIsbn(isbn: string): Promise<LookupResultWire> {
+  return request(`/lookup${queryString({ isbn })}`)
+}
+
+/** GET /lookup?q= — top 10 candidats (recherche titre/auteur). */
+export async function lookupByQuery(q: string): Promise<LookupCandidateWire[]> {
+  return request(`/lookup${queryString({ q })}`)
+}
+
+/** GET /lookup/covers — variantes de couverture d'un candidat choisi. */
+export async function lookupCovers(
+  work?: string | null,
+  isbn?: string | null,
+): Promise<CoverVariantWire[]> {
+  const params: Record<string, string> = {}
+  if (work) params.work = work
+  if (isbn) params.isbn = isbn
+  return request(`/lookup/covers${queryString(params)}`)
+}
+
+// ---------------------------------------------------------------------------
+// Stats (§5) — formes snake_case telles que servies (types/stats.ts)
+// ---------------------------------------------------------------------------
+
+export async function getStatsOverview(): Promise<StatsOverview> {
+  return request(`/stats/overview`)
+}
+
+export async function getStatsTimeline(range: StatsRange): Promise<StatsTimeline> {
+  return request(`/stats/timeline${queryString({ range })}`)
+}
+
+export async function getStatsByGenre(): Promise<StatsBreakdown> {
+  return request(`/stats/by-genre`)
+}
+
+export async function getStatsByAuthor(): Promise<StatsBreakdown> {
+  return request(`/stats/by-author`)
+}
+
+// ---------------------------------------------------------------------------
+// KOReader (§4) — import statistics.sqlite3
+// ---------------------------------------------------------------------------
+
+interface KoreaderPreviewWire {
+  import_id: string
+  gap_sec: number
+  books: {
+    koreader_book_id: number
+    title: string
+    authors: string // KOReader sert une chaîne (souvent "Prénom Nom, Prénom Nom")
+    md5: string | null
+    total_sessions: number
+    total_duration_sec: number
+    matched: boolean
+    matched_book_id: number | null
+    candidates: { book_id: number; title: string; authors: string[]; score: number }[]
+  }[]
+  sessions: {
+    koreader_hash: string
+    started_at: string
+    ended_at: string | null
+    duration_sec: number
+    start_page: number | null
+    end_page: number | null
+    pages_read: number | null
+    already_imported: boolean
+  }[]
+  sessions_to_import: number
+  sessions_skipped: number
+}
+
+interface KoreaderConfirmResultWire {
+  import_id: string
+  sessions_added: number
+  sessions_skipped: number
+  books_matched: number
+  books_unmatched: number
+}
+
+function splitAuthors(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function mapKoreaderPreview(wire: KoreaderPreviewWire): KoreaderPreview {
+  return {
+    importId: wire.import_id,
+    gapSec: wire.gap_sec,
+    books: wire.books.map((b) => ({
+      koreaderBookId: b.koreader_book_id,
+      title: b.title,
+      authors: splitAuthors(b.authors),
+      md5: b.md5,
+      totalSessions: b.total_sessions,
+      totalDurationSec: b.total_duration_sec,
+      matched: b.matched,
+      matchedBookId: b.matched_book_id,
+      candidates: b.candidates.map((c) => ({
+        bookId: c.book_id,
+        title: c.title,
+        authors: c.authors,
+        score: c.score,
+      })),
+    })),
+    sessions: wire.sessions.map((s) => ({
+      koreaderHash: s.koreader_hash,
+      startedAt: s.started_at,
+      endedAt: s.ended_at,
+      durationSec: s.duration_sec,
+      startPage: s.start_page,
+      endPage: s.end_page,
+      pagesRead: s.pages_read,
+      alreadyImported: s.already_imported,
+    })),
+    sessionsToImport: wire.sessions_to_import,
+    sessionsSkipped: wire.sessions_skipped,
+  }
+}
+
+/** POST /koreader/import (multipart) — upload statistics.sqlite3 → diff preview. */
+export async function uploadKoreaderFile(file: File): Promise<KoreaderPreview> {
+  const form = new FormData()
+  form.append("file", file, file.name)
+  const wire = await request<KoreaderPreviewWire>(`/koreader/import`, { method: "POST", body: form })
+  return mapKoreaderPreview(wire)
+}
+
+/** POST /koreader/import/confirm — applique l'import prévisualisé. */
+export async function confirmKoreaderImport(
+  body: KoreaderConfirmRequest,
+): Promise<KoreaderConfirmResult> {
+  const wire = await request<KoreaderConfirmResultWire>(`/koreader/import/confirm`, {
+    method: "POST",
+    body: { import_id: body.importId, mappings: body.mappings },
+  })
+  return {
+    importId: wire.import_id,
+    sessionsAdded: wire.sessions_added,
+    sessionsSkipped: wire.sessions_skipped,
+    booksMatched: wire.books_matched,
+    booksUnmatched: wire.books_unmatched,
   }
 }

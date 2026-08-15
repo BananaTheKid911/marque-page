@@ -1,4 +1,4 @@
-import type { FormEvent } from "react"
+import type { FormEvent, RefObject } from "react"
 import { Camera, ScanLine, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,14 +13,19 @@ interface IsbnScanPanelProps {
   onIsbnChange: (value: string) => void
   onManualSubmit: (e: FormEvent<HTMLFormElement>) => void
   disabled?: boolean
+  /**
+   * Flux caméra branché par AddBookPage (zxing) : la zone de visée du
+   * design devient un vrai <video> quand on scanne, la ligne et le cadre
+   * restent par-dessus. `playsInline` est requis par iOS Safari.
+   */
+  videoRef?: RefObject<HTMLVideoElement | null>
 }
 
 /**
  * Scan caméra + saisie manuelle d'ISBN — deux voies indépendantes vers la
  * même recherche, pas l'une en repli de l'autre (spec §4 les liste comme
- * deux capacités distinctes). zxing sera branché par frontend-dev sur
- * `onStartScan` : ici la zone de visée, l'état "scan en cours" et l'état
- * "rien détecté" sont dessinés, pas câblés à une caméra réelle.
+ * deux capacités distinctes). Le flux caméra réel est piloté par l'appelant
+ * via `videoRef` : le composant ne possède pas la caméra, il l'affiche.
  */
 export function IsbnScanPanel({
   scanState,
@@ -30,6 +35,7 @@ export function IsbnScanPanel({
   onIsbnChange,
   onManualSubmit,
   disabled,
+  videoRef,
 }: IsbnScanPanelProps) {
   return (
     <div className="flex flex-col gap-5">
@@ -58,6 +64,13 @@ export function IsbnScanPanel({
         {scanState === "scanning" && (
           <>
             <div className="relative flex h-28 w-full max-w-56 items-center justify-center overflow-hidden rounded-[3px] bg-ink/90">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="absolute inset-0 h-full w-full object-cover"
+                aria-label="Flux caméra pour le scan du code-barres"
+              />
               <div className="absolute inset-3 rounded-[2px] border border-paper/50" aria-hidden="true" />
               <div
                 className="absolute inset-x-3 h-px bg-paper/70 motion-safe:animate-pulse"
@@ -130,3 +143,4 @@ export function IsbnScanPanel({
     </div>
   )
 }
+

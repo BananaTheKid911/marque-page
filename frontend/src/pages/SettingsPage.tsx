@@ -14,14 +14,20 @@ import { formatDateLong } from "@/lib/format"
 
 /**
  * Réglages. Écran "sans couverture" (AGENTS.md) — pas d'image, pas
- * d'accent. Tout mock/no-op : formulaires inertes, aucun submit réel
- * (frontend-dev branche APP_PASSWORD, SESSION_GAP_SEC, /export, /koreader
- * /import). Aucun bouton n'est rempli d'encre ici : contrairement à la
- * page Détail, aucune action ne domine vraiment les autres sur cet écran,
- * donc la masse noire (réservée à UN point de fixation par écran) n'est
- * pas utilisée — tout reste en outline.
+ * d'accent. Seul l'export est réel ici (filet de sûreté du NVMe : bouton
+ * "Exporter (JSON)") ; mot de passe (APP_PASSWORD), seuil SESSION_GAP_SEC
+ * et KOReader restent inertes tant que l'auth et les réglages serveur ne
+ * sont pas câblés. Aucun bouton n'est rempli d'encre : aucune action ne
+ * domine vraiment les autres sur cet écran, la masse noire (réservée à UN
+ * point de fixation par écran) n'est pas utilisée — tout reste en outline.
  */
 export function SettingsPage() {
+  // GET /api/v1/export sert le backup (Content-Disposition: attachment) :
+  // un simple lien de navigation suffit, le navigateur télécharge l'archive.
+  function handleExport() {
+    window.location.href = "/api/v1/export"
+  }
+
   return (
     <div className="flex max-w-2xl flex-col gap-8 pb-8">
       <h1 className="text-[19px] font-semibold text-ink @min-[1200px]:text-[22px]">
@@ -91,10 +97,15 @@ export function SettingsPage() {
       <SettingsSection title="Sauvegarde">
         <SettingsRow
           label="Exporter mes données"
-          hint="Dump JSON complet — base et couvertures ne sont pas dans le backup 3-2-1"
+          hint="Archive ZIP complète — base et couvertures ne sont pas dans le backup 3-2-1"
         >
-          <Button variant="outline" size="default" className="rounded-[3px]">
-            Exporter (JSON)
+          <Button
+            variant="outline"
+            size="default"
+            className="rounded-[3px]"
+            onClick={handleExport}
+          >
+            Exporter (ZIP)
           </Button>
         </SettingsRow>
       </SettingsSection>

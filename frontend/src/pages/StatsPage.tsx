@@ -1,10 +1,5 @@
 import { useState } from "react"
-import {
-  getStatsByAuthorMock,
-  getStatsByGenreMock,
-  getStatsOverviewMock,
-  getStatsTimelineMock,
-} from "@/lib/stats-mock"
+import { getStatsByAuthor, getStatsByGenre, getStatsOverview, getStatsTimeline } from "@/lib/api"
 import { useAsyncData } from "@/lib/hooks"
 import { StatsOverviewGrid } from "@/components/stats/StatsOverviewGrid"
 import { StatsTimelineChart } from "@/components/stats/StatsTimelineChart"
@@ -13,10 +8,9 @@ import type { StatsRange } from "@/types/stats"
 
 /**
  * Écran Statistiques — GET /stats/overview, /stats/timeline, /stats/by-genre,
- * /stats/by-author (backend/app/routers/stats.py). Alimenté par des mocks
- * (lib/stats-mock.ts) reproduisant exactement les formes du contrat réel :
- * ce n'est pas le rôle de design-ui de câbler le réseau (frontend-dev le
- * fera, en remplaçant les quatre imports ci-dessus par `lib/api.ts`).
+ * /stats/by-author (backend/app/routers/stats.py). Formes snake_case telles
+ * que servies par le backend (types/stats.ts), pas de mapper : le contrat
+ * est déjà en snake_case des deux côtés.
  *
  * Composition (AGENTS.md) : un chiffre à 34px (streak) domine par la
  * taille, jamais par la couleur ; le graphique et les répartitions
@@ -27,10 +21,10 @@ import type { StatsRange } from "@/types/stats"
 export function StatsPage() {
   const [range, setRange] = useState<StatsRange>("day")
 
-  const overviewData = useAsyncData(getStatsOverviewMock, [])
-  const timelineData = useAsyncData(() => getStatsTimelineMock(range), [range])
-  const genreData = useAsyncData(getStatsByGenreMock, [])
-  const authorData = useAsyncData(getStatsByAuthorMock, [])
+  const overviewData = useAsyncData(getStatsOverview, [])
+  const timelineData = useAsyncData(() => getStatsTimeline(range), [range])
+  const genreData = useAsyncData(getStatsByGenre, [])
+  const authorData = useAsyncData(getStatsByAuthor, [])
 
   const hasError = overviewData.error || timelineData.error || genreData.error || authorData.error
 

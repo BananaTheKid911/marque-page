@@ -1,10 +1,7 @@
 /**
  * Types Stats — projection du contrat réel (backend/app/routers/stats.py).
- * Contrairement à `Book` (types/book.ts), ces formes ne sont PAS
- * renommées en camelCase : le backend les sert déjà en snake_case simple
- * et aucun mapper dédié n'existe encore côté `lib/api.ts` — StatsPage
- * consomme pour l'instant `lib/stats-mock.ts` (données représentatives,
- * pas de réseau réel). Câblage réel : TODO frontend-dev.
+ * Formes non renommées en camelCase : le backend les sert déjà en
+ * snake_case simple et lib/api.ts les passe telles quelles (StatsPage).
  */
 
 export interface StatsOverview {

@@ -29,7 +29,8 @@ export interface KoreaderBookPreview {
   koreaderBookId: number
   title: string
   authors: string[]
-  md5: string
+  /** partial md5 KOReader — absent si le fichier ne le renseigne pas */
+  md5: string | null
   totalSessions: number
   totalDurationSec: number
   /** `true` = rattaché automatiquement par MD5 exact, jamais par le flou seul. */

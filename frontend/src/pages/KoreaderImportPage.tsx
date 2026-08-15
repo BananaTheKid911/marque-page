@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { ChevronLeft } from "lucide-react"
+import { confirmKoreaderImport, uploadKoreaderFile } from "@/lib/api"
+import { useBooks } from "@/context/books"
 import { Button } from "@/components/ui/button"
 import { KoreaderDropzone } from "@/components/koreader/KoreaderDropzone"
 import { KoreaderErrorNotice } from "@/components/koreader/KoreaderErrorNotice"
@@ -18,119 +20,18 @@ import type { KoreaderConfirmResult, KoreaderMapping, KoreaderPreview } from "@/
  * `import_id` et les rattachements choisis n'ont besoin de survivre qu'à
  * la session de navigation, pas à un rechargement de page.
  *
- * PAS de réseau réel : `simulateUpload`/`simulateConfirm` sont des stubs
- * (setTimeout + données mock) que frontend-dev remplacera par
- * `uploadKoreaderFile`/`confirmKoreaderImport` dans lib/api.ts. Les
- * formes de données (KoreaderPreview, KoreaderConfirmResult) sont
- * calquées sur le contrat réel — seul le transport est faux.
+ * Câblé sur le backend réel : POST /koreader/import (multipart) et
+ * POST /koreader/import/confirm. Les formes de données (KoreaderPreview,
+ * KoreaderConfirmResult) sont celles de types/koreader.ts (mapper dans
+ * lib/api.ts : `authors` sert une chaîne, scindée en tableau).
  */
 
 type Step = "upload" | "analyzing" | "error" | "preview" | "matching" | "confirming" | "result"
 
 const MAX_BYTES = 50 * 1024 * 1024
 
-// --- Mock représentatif d'un KoreaderPreview (backend/app/schemas.py) ---
-const MOCK_PREVIEW: KoreaderPreview = {
-  importId: "6f2c9a1e4b8d7c3f5a0e9d2b1c4f6a8e3d5b7c9f1a2e4d6b8c0f2a4e6d8b0c1f",
-  gapSec: 900,
-  sessionsToImport: 41,
-  sessionsSkipped: 6,
-  books: [
-    {
-      koreaderBookId: 101,
-      title: "Les Furtifs",
-      authors: ["Alain Damasio"],
-      md5: "a1b2c3d4",
-      totalSessions: 14,
-      totalDurationSec: 30240,
-      matched: true,
-      matchedBookId: 5,
-      candidates: [],
-    },
-    {
-      koreaderBookId: 102,
-      title: "Providence",
-      authors: ["Alain Damasio"],
-      md5: "e5f6a7b8",
-      totalSessions: 6,
-      totalDurationSec: 9600,
-      matched: true,
-      matchedBookId: 12,
-      candidates: [],
-    },
-    {
-      koreaderBookId: 103,
-      title: "La Horde du Contrevent",
-      authors: ["Alain Damasio"],
-      md5: "c9d0e1f2",
-      totalSessions: 22,
-      totalDurationSec: 54000,
-      matched: false,
-      matchedBookId: null,
-      candidates: [
-        { bookId: 7, title: "La Horde du Contrevent", authors: ["Alain Damasio"], score: 0.97 },
-        { bookId: 9, title: "Le Contrevent, tome 1", authors: ["A. Damasio"], score: 0.71 },
-      ],
-    },
-    {
-      koreaderBookId: 104,
-      title: "Dune - Tome 2",
-      authors: ["Frank Herbert"],
-      md5: "f3a4b5c6",
-      totalSessions: 3,
-      totalDurationSec: 5400,
-      matched: false,
-      matchedBookId: null,
-      candidates: [
-        { bookId: 15, title: "Le Messie de Dune", authors: ["Frank Herbert"], score: 0.58 },
-      ],
-    },
-    {
-      koreaderBookId: 105,
-      title: "Un livre totalement inconnu",
-      authors: ["Anonyme"],
-      md5: "d7e8f9a0",
-      totalSessions: 1,
-      totalDurationSec: 720,
-      matched: false,
-      matchedBookId: null,
-      candidates: [],
-    },
-  ],
-  sessions: [],
-}
-
-/** Stub d'upload : valide localement, puis simule l'aller-retour réseau. */
-function simulateUpload(file: File): Promise<KoreaderPreview> {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      // Démo de l'état d'erreur (fichier corrompu / non reconnu par le
-      // parser) sans backend réel : un nom de fichier contenant "invalid".
-      if (file.name.toLowerCase().includes("invalid")) {
-        reject(new Error("Fichier SQLite illisible ou table `page_stat_data` absente."))
-        return
-      }
-      resolve(MOCK_PREVIEW)
-    }, 900)
-  })
-}
-
-/** Stub de confirmation : ignore les mappings réels, renvoie un résultat mock cohérent. */
-function simulateConfirm(mappings: KoreaderMapping[]): Promise<KoreaderConfirmResult> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        importId: MOCK_PREVIEW.importId,
-        sessionsAdded: MOCK_PREVIEW.sessionsToImport,
-        sessionsSkipped: MOCK_PREVIEW.sessionsSkipped,
-        booksMatched: MOCK_PREVIEW.books.filter((b) => b.matched).length + mappings.length,
-        booksUnmatched: MOCK_PREVIEW.books.filter((b) => !b.matched).length - mappings.length,
-      })
-    }, 700)
-  })
-}
-
 export function KoreaderImportPage() {
+  const { notifyBooksChanged } = useBooks()
   const [step, setStep] = useState<Step>("upload")
   const [file, setFile] = useState<File | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -141,7 +42,7 @@ export function KoreaderImportPage() {
   useEffect(() => {
     if (step !== "analyzing" || !file) return
     let cancelled = false
-    simulateUpload(file)
+    uploadKoreaderFile(file)
       .then((data) => {
         if (cancelled) return
         setPreview(data)
@@ -192,6 +93,7 @@ export function KoreaderImportPage() {
   const matchedCount = preview ? preview.books.length - unmatchedCount : 0
 
   async function handleConfirm() {
+    if (!preview) return
     setStep("confirming")
     const chosen: KoreaderMapping[] = Object.entries(mappings)
       .filter(([, bookId]) => bookId !== null)
@@ -199,9 +101,19 @@ export function KoreaderImportPage() {
         koreaderBookId: Number(koreaderBookId),
         bookId: bookId as number,
       }))
-    const confirmResult = await simulateConfirm(chosen)
-    setResult(confirmResult)
-    setStep("result")
+    try {
+      const confirmResult = await confirmKoreaderImport({
+        importId: preview.importId,
+        mappings: chosen,
+      })
+      setResult(confirmResult)
+      setStep("result")
+      // Sessions ajoutées : la carte « En cours » et les listes changent.
+      notifyBooksChanged()
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err))
+      setStep("error")
+    }
   }
 
   return (
