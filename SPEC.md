@@ -218,12 +218,41 @@ Le `md5` KOReader est un *partial md5* (échantillonné), pas un md5 de fichier 
 
 ### 4.4 Modes de récupération du fichier (du + simple au + automatisé)
 - **MVP → Upload manuel** : bouton "Importer stats KOReader" dans Réglages → upload du `statistics.sqlite3` → parsing → preview du diff → confirmation.
-- **Auto via dossier surveillé** : KOReader (cloud sync / dossier) dépose le fichier dans un dossier monté sur le NAS ; un watcher (watchdog) déclenche l'import. (Tu as Tailscale → le Kindle peut pousser le fichier.)
+- **Auto via dossier surveillé** : décidé le 16/08/2026 avec Jordy. Pas de Tailscale sur la Kindle (jailbreak KUAL — module TUN non vérifié disponible, piste écartée). La Kindle est en WebDAV natif KOReader vers un serveur monté sur le **MN56** (pas le NAS, qui reste stockage/backup pur), joint en **IP locale directe quand Kindle et MN56 sont sur le même WiFi** — pas de sync hors de ce réseau, périmètre volontairement restreint pour rester simple. Un watcher (watchdog) sur le dossier déclenche l'import dès que le fichier arrive. `statistics.sqlite3` étant une base cumulative (toutes les sessions, WiFi ou non), un livre lu hors WiFi est **rattrapé automatiquement** au prochain sync grâce à la dédup par `koreader_hash` (§4.2) — pas de session perdue, juste un import différé. **Non vérifié à ce stade : le déclenchement effectif du push KOReader→WebDAV** (KOReader n'a pas nativement un "auto-upload au reconnect WiFi" confirmé ; il faudra probablement un script KUAL déclenché sur événement WiFi, ou une action manuelle dans KOReader). À tester sur la Kindle réelle avant de considérer ce mode "automatique" acquis.
 - **Optionnel (Phase 6) → serveur kosync intégré** : exposer les endpoints du protocole kosync (`/users/create`, `/users/auth`, `/syncs/progress`) pour la **progression live %** entre appareils. Limite connue : kosync ne transmet qu'un hash MD5 + % par document, **sans titre** → utile pour le % courant, pas pour les sessions.
 
 ### 4.5 Highlights KOReader
 - Source : sidecars `.sdr/metadata.epub.lua` (ou export highlights KOReader en HTML/JSON).
 - MVP : import via upload d'un export highlights ou parsing des sidecars déposés dans le dossier surveillé → table `highlight` avec `source='koreader'`, dédup par `(book_id, text, page)`.
+
+### 4.6 Import Book Track — format réel (vérifié le 16/08/2026)
+
+> Basé sur un export réel de l'app (`booktracker.csv`, 77 lignes). **Ne plus supposer, ce format fait foi.** CSV, en-têtes en 1ère ligne, 43 colonnes :
+
+```
+createdAt, updatedAt, id, externalId, source, title, subtitle, externalLink, state,
+types, isbn10, isbn13, releaseDate, originalReleaseDate, releaseYear, originalReleaseYear,
+placeOfPublication, description, remoteImageUrl, thumbnailRemoteImageUrl,
+externalAverageRating, userRating, pages, audiobookDuration, languages, purchaseDate,
+purchasePrice, purchaseCurrency, series, seriesNumber, location, bookcase, shelf,
+authors, narrators, illustrators, translators, publishers, categories, tags,
+readingStatus, startReading, endReading
+```
+
+**Deux statuts indépendants, à ne pas confondre :**
+- `state` — possession : `BOOKSHELF` (possédé) | `NOT_OWNED` (non possédé, ex. lu en bibliothèque) | `WISHLIST`.
+- `readingStatus` — lecture : `unread` | `to-read` | `reading` | `read` | `dnf`.
+
+Ces deux axes correspondent au besoin déjà noté (mémoire `data-model-extensions`) de séparer format-possession et statut de lecture — cet export confirme que le modèle à deux colonnes est le bon.
+
+**Champs à parsing particulier :**
+- `types` — un ou plusieurs formats, séparés par `;` : `EBOOK`, `AUDIOBOOK`, `HARDCOVER`, `PAPERBACK`, ex. `"PAPERBACK;EBOOK"`.
+- `tags` — paires `nom|||#couleurHex`, plusieurs tags séparés par `;` : `"Cyberpunk|||#DB34F2;Megacorporations|||#00D2E0"`. La couleur vient de Book Track, pas forcément à reprendre (AGENTS.md interdit d'inventer un token `--accent` — ne pas importer ces couleurs dans le design system, seulement le nom du tag).
+- `source` — provenance de la métadonnée d'origine dans Book Track (`GOOGLE_BOOKS`, `GOODREADS`, `ISBNDB`) — informatif, pas structurant pour l'import.
+- `startReading` / `endReading` / `purchaseDate` — `YYYY-MM-DD`, chaîne vide si non renseigné (pas de `NULL` littéral).
+- `series` / `seriesNumber` — texte libre, souvent vides même quand `series` est renseigné (`seriesNumber` peut manquer).
+- `description` contient des retours à la ligne et guillemets internes échappés à la RFC 4180 standard — utiliser un parseur CSV, pas un split naïf sur `,`.
+- Une seule ligne = une seule édition suivie ; un même titre peut apparaître deux fois avec deux `state`/`readingStatus` différents si l'utilisateur l'a retracké (ex. wishlist abandonnée puis relu) — dédupliquer par `id` (UUID Book Track), jamais par titre.
 
 ---
 

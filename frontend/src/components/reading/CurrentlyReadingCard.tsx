@@ -216,17 +216,20 @@ function EmptyCurrentlyReading({
       >
         {placeholder}
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-semibold text-ink">
+          <h2 className="truncate text-[13.5px] font-semibold text-ink">
             Aucun livre en cours
           </h2>
-          <p className="truncate text-[13px] text-ink-soft">
+          <p className="truncate text-[12px] text-ink-soft">
             Choisis-en un dans ta pile à lire
           </p>
         </div>
-        <Button asChild className="h-11 min-w-11 rounded-[3px] px-4 text-[15px]">
+        <Button
+          asChild
+          className="h-11 shrink-0 gap-1 rounded-[3px] px-3 text-[13px]"
+        >
           <Link to="/pile-a-lire">
             Choisir
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </Button>
       </section>

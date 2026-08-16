@@ -18,7 +18,7 @@ export function BottomNav({ items, activeKey }: BottomNavProps) {
       className="shell__bottomnav border-t border-line bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1"
       aria-label="Navigation principale"
     >
-      <ul className="flex items-stretch justify-between">
+      <ul className="flex w-full items-stretch justify-between">
         {items.map((item) => {
           const Icon = NAV_ICONS[item.key]
           const isActive = item.key === activeKey
