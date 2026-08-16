@@ -36,6 +36,7 @@ import type {
   StatsRange,
   StatsTimeline,
 } from "@/types/stats"
+import type { BooktrackImportResult } from "@/types/import"
 
 const API_BASE = "/api/v1"
 
@@ -643,4 +644,20 @@ export async function confirmKoreaderImport(
     booksMatched: wire.books_matched,
     booksUnmatched: wire.books_unmatched,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Book Track (§4.6) — import CSV d'export Book Track (migration initiale)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /import/booktrack (multipart) — import du CSV d'export Book Track.
+ * Réponse snake_case servie telle quelle (`BooktrackImportResult`, cf.
+ * types/import.ts) : résultat éphémère affiché une fois, pas une entité
+ * de domaine à projeter en camelCase — même convention que les stats.
+ */
+export async function importBooktrack(file: File): Promise<BooktrackImportResult> {
+  const form = new FormData()
+  form.append("file", file, file.name)
+  return request(`/import/booktrack`, { method: "POST", body: form })
 }
