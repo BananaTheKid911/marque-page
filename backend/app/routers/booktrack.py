@@ -55,10 +55,10 @@ MAX_BOOKTRACK_BYTES = 10 * 1024 * 1024  # 10 Mo, un export réaliste est < 1 Mo
 def _row_to_book(row: BooktrackRow) -> Book:
     """Construit le modèle `Book` depuis une ligne normalisée.
 
-    Le statut wishlist ne porte jamais de prix ni de date d'achat
-    (`_check_price_allowed` de books.py l'exigerait au commit) : on nettoie
-    ici plutôt que de laisser échouer la ligne — un livre souhaité n'a pas
-    de prix payé par définition.
+    Un livre souhaité (`is_wishlist=1`) ne porte jamais de prix ni de date
+    d'achat (`_check_price_allowed` de books.py l'exigerait au commit) : on
+    nettoie ici plutôt que de laisser échouer la ligne — un livre souhaité
+    n'a pas de prix payé par définition.
     """
     return Book(
         title=row.title,
@@ -71,10 +71,11 @@ def _row_to_book(row: BooktrackRow) -> Book:
         language=row.language,
         description=row.description,
         status=row.status,
+        is_wishlist=row.is_wishlist,
         owned=row.owned,
         rating=row.rating,
         purchased_at=row.purchased_at,
-        price_paid=row.price_paid if row.status != "wishlist" else None,
+        price_paid=row.price_paid if not row.is_wishlist else None,
         series_index=row.series_index,
         cover_source=row.cover_source,
         booktrack_id=row.booktrack_id,

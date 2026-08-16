@@ -56,8 +56,13 @@ CREATE TABLE book (
     cover_path          TEXT,           -- chemin local servi par le NAS (jamais hotlink)
     cover_source        TEXT,           -- openlibrary | google | manual | upload
     status              TEXT NOT NULL DEFAULT 'tbr',
-                        -- wishlist | tbr | reading | read | dnf | on_hold
-    owned               INTEGER NOT NULL DEFAULT 1,  -- 0 pour wishlist
+                        -- tbr | reading | read | dnf | on_hold
+                        -- (wishlist n'est plus une valeur de status, cf. is_wishlist ci-dessous — décision 16/08/2026)
+    is_wishlist         INTEGER NOT NULL DEFAULT 0,
+                        -- 1 = souhaité, hors bibliothèque, `status` sans objet tant que 1
+    type                TEXT NOT NULL DEFAULT 'livre',
+                        -- livre | manga | comics | manhwa (décision 16/08/2026)
+    owned               INTEGER NOT NULL DEFAULT 1,  -- 0 pour un wishlist ou un format non acheté
     rating              REAL,           -- 0.5 .. 5.0 (pas; null si non noté)
     current_page        INTEGER DEFAULT 0,
     current_percent     REAL DEFAULT 0,
@@ -156,9 +161,10 @@ CREATE TABLE koreader_import (
 ```
 
 **Règles métier :**
-- `Bibliothèque` (vue principale) = tous les livres avec `owned = 1` (donc tbr/reading/read/dnf/on_hold).
-- `Pile à lire` = `status = 'tbr'`.
-- `Wishlist` = `status = 'wishlist'` (et `owned = 0`).
+- `Bibliothèque` (vue principale) = tous les livres avec `is_wishlist = 0` (statuts tbr/reading/read/dnf/on_hold). Le filtre `status` de `GET /books` ne s'applique jamais à un livre wishlist — **la Bibliothèque n'affiche jamais un wishlist**, ce n'est plus un statut parmi d'autres (correction du 16/08/2026, cf. §5 et `docs/journal/` du jour : le filtre "Wishlist" existait par erreur comme onglet de statut dans la Bibliothèque en plus de la page dédiée).
+- `Pile à lire` = `status = 'tbr'` **et** `is_wishlist = 0`.
+- `Wishlist` = `is_wishlist = 1`. Un livre wishlist n'a pas de `status` significatif (le champ garde sa valeur par défaut mais n'est lu/affiché nulle part tant que `is_wishlist = 1`). Passer un livre de la wishlist à la bibliothèque ("je l'ai acheté / il rejoint ma pile") est une transition dédiée : `is_wishlist` passe à 0 et `status` prend `'tbr'` — ce n'est plus un cas du endpoint `POST /books/{id}/status` (qui n'accepte plus `wishlist` comme valeur), voir §5 `POST /books/{id}/acquire`.
+- `type` distingue livre/manga/comics/manhwa (décision 16/08/2026, demande de Jordy) — filtre supplémentaire de la Bibliothèque, purement déclaratif et manuel (aucune inférence automatique depuis le genre ou les métadonnées externes). Toutes les lignes existantes migrent à `'livre'` ; à corriger au cas par cas depuis la fiche détail.
 - `current_percent` recalculé à chaque session (`end_page / page_count`) ou poussé par KOReader.
 
 ---
@@ -267,15 +273,24 @@ GET    /lookup?q={titre|auteur}            -> top 10 candidats
 GET    /lookup/covers?work={olid}&isbn=..  -> variantes de couverture seules
 
 # Livres
-GET    /books                  ?status=&tag=&genre=&author=&q=&sort=&page=
-POST   /books                  -> création (depuis lookup ou manuel)
+GET    /books                  ?status=&tag=&genre=&author=&q=&sort=&page=&type=
+                                -- n'inclut JAMAIS is_wishlist=1, quel que soit `status` (16/08/2026)
+POST   /books                  -> création (depuis lookup ou manuel) ; body accepte `is_wishlist`
+                                   (ajout direct à la wishlist, `status` alors sans objet) et `type`
+                                   (défaut 'livre' si omis)
 GET    /books/{id}
-PATCH  /books/{id}             -> maj statut, note, couverture, tags...
+PATCH  /books/{id}             -> maj statut, note, couverture, tags, type...
 DELETE /books/{id}
 POST   /books/{id}/cover       -> upload couverture manuelle / sélection variante
 
-# Statut rapide (pile à lire / wishlist / lu)
-POST   /books/{id}/status      { status, finished_at? }
+# Wishlist — séparée de la Bibliothèque (16/08/2026)
+GET    /books                  ?wishlist=true                 -> remplace l'ancien status=wishlist
+POST   /books/{id}/acquire     -> is_wishlist:0, status:'tbr' ("je l'ai acheté, il rejoint ma pile") ;
+                                   seule sortie de wishlist, aucun endpoint pour y rentrer un livre
+                                   déjà en bibliothèque (cas non demandé, cf. anti scope-creep AGENTS.md)
+
+# Statut rapide (pile à lire / lu) — `wishlist` n'est plus une valeur acceptée (16/08/2026)
+POST   /books/{id}/status      { status, finished_at? }       -- status ∈ tbr|reading|read|dnf|on_hold
 
 # Lectures (read_entry, relectures)
 POST   /books/{id}/reads       { started_at, finished_at, rating, review }

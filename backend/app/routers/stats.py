@@ -49,9 +49,13 @@ def stats_overview(session: Session = Depends(get_session)) -> StatsOverview:
     sessions = session.exec(select(ReadingSession)).all()
 
     total_owned = sum(1 for b in books if b.owned == 1)
-    by_status = defaultdict(int)
-    for b in books:
-        by_status[b.status] += 1
+    # `wishlist` n'est plus un statut (16/08/2026) : la wishlist se compte
+    # par `is_wishlist=1`, et la Pile à lire = tbr HORS wishlist (un livre
+    # souhaité a un status sans objet, forcé à 'tbr', qui ne compte pas).
+    books_read = sum(1 for b in books if b.status == "read")
+    books_reading = sum(1 for b in books if b.status == "reading")
+    books_tbr = sum(1 for b in books if b.status == "tbr" and b.is_wishlist == 0)
+    books_wishlist = sum(1 for b in books if b.is_wishlist == 1)
 
     ratings = [b.rating for b in books if b.rating is not None]
     avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
@@ -62,10 +66,10 @@ def stats_overview(session: Session = Depends(get_session)) -> StatsOverview:
     return StatsOverview(
         total_books=len(books),
         books_owned=total_owned,
-        books_read=by_status["read"],
-        books_reading=by_status["reading"],
-        books_tbr=by_status["tbr"],
-        books_wishlist=by_status["wishlist"],
+        books_read=books_read,
+        books_reading=books_reading,
+        books_tbr=books_tbr,
+        books_wishlist=books_wishlist,
         total_sessions=len(sessions),
         total_duration_sec=total_duration,
         total_pages_read=total_pages,

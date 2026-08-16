@@ -19,8 +19,13 @@ from pydantic import BaseModel, Field, field_validator
 # LOOKUP — données agrégées depuis Open Library / Google Books
 # ---------------------------------------------------------------------------
 
-#: Statuts de livre valides (SPEC.md §2).
-BOOK_STATUSES = {"wishlist", "tbr", "reading", "read", "dnf", "on_hold"}
+#: Statuts de livre valides (SPEC.md §2). `wishlist` n'est plus un statut
+#: depuis le 16/08/2026 : un livre souhaité porte `is_wishlist=1` (flag
+#: indépendant), et la seule sortie de wishlist est `POST /books/{id}/acquire`.
+BOOK_STATUSES = {"tbr", "reading", "read", "dnf", "on_hold"}
+
+#: Types de livre (décision 16/08/2026) — CHECK `ck_book_type` en base.
+BOOK_TYPES = ("livre", "manga", "comics", "manhwa")
 
 #: Formats non exclusifs d'un livre (décision produit 15/08), en accord avec
 #: la CHECK constraint `ck_book_format_type` de la table `book_format`.
@@ -132,6 +137,8 @@ class BookCreate(BaseModel):
     language: str | None = None
     description: str | None = None
     status: str = "tbr"
+    is_wishlist: int = 0  # 1 = ajout direct à la wishlist ; `status` sans objet
+    type: str = "livre"  # livre | manga | comics | manhwa
     owned: int = 1
     rating: float | None = Field(default=None, ge=0.5, le=5.0)
     current_page: int = Field(default=0, ge=0)
@@ -154,6 +161,20 @@ class BookCreate(BaseModel):
     def _check_status(cls, v: str) -> str:
         if v not in BOOK_STATUSES:
             raise ValueError(f"status invalide : {v!r}")
+        return v
+
+    @field_validator("is_wishlist")
+    @classmethod
+    def _check_is_wishlist(cls, v: int) -> int:
+        if v not in (0, 1):
+            raise ValueError("is_wishlist doit valoir 0 ou 1")
+        return v
+
+    @field_validator("type")
+    @classmethod
+    def _check_type(cls, v: str) -> str:
+        if v not in BOOK_TYPES:
+            raise ValueError(f"type invalide : {v!r}")
         return v
 
     @field_validator("owned")
@@ -200,6 +221,7 @@ class BookUpdate(BaseModel):
     language: str | None = None
     description: str | None = None
     status: str | None = None
+    type: str | None = None  # livre | manga | comics | manhwa
     owned: int | None = None
     rating: float | None = Field(default=None, ge=0.5, le=5.0)
     current_page: int | None = Field(default=None, ge=0)
@@ -222,6 +244,13 @@ class BookUpdate(BaseModel):
     def _check_status(cls, v: str | None) -> str | None:
         if v is not None and v not in BOOK_STATUSES:
             raise ValueError(f"status invalide : {v!r}")
+        return v
+
+    @field_validator("type")
+    @classmethod
+    def _check_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in BOOK_TYPES:
+            raise ValueError(f"type invalide : {v!r}")
         return v
 
     @field_validator("owned")
@@ -288,7 +317,7 @@ class BookOut(BaseModel):
 
     `cover_url`/`cover_thumb_url` sont construits depuis `cover_path`
     (chemin relatif au dossier `covers/`), servis par StaticFiles.
-    `is_primary_reading` est un booléen (la colonne est un 0/1) ;
+    `is_primary_reading` et `is_wishlist` sont des booléens (colonnes 0/1) ;
     `formats` liste les formats avec leur possession par format.
     """
 
@@ -324,6 +353,8 @@ class BookOut(BaseModel):
     cover_url: str | None = None
     cover_thumb_url: str | None = None
     status: str
+    is_wishlist: bool = False  # la colonne est un 0/1
+    type: str = "livre"  # livre | manga | comics | manhwa
     owned: int
     rating: float | None = None
     current_page: int
@@ -701,7 +732,7 @@ class StatsOverview(BaseModel):
     books_read: int           # status = read
     books_reading: int        # status = reading
     books_tbr: int            # status = tbr
-    books_wishlist: int       # status = wishlist
+    books_wishlist: int       # is_wishlist = 1
     total_sessions: int
     total_duration_sec: int
     total_pages_read: int

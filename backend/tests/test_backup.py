@@ -138,7 +138,7 @@ class TestExport:
             "id", "title", "authors", "genres", "tags", "series_name",
             "series_index", "formats", "price_paid", "purchased_at",
             "is_primary_reading", "tbr_rank", "current_page", "current_percent",
-            "owned", "status", "cover_path",
+            "owned", "status", "is_wishlist", "type", "cover_path",
         ):
             assert exported_book[field] == api_book[field], field
 
@@ -205,6 +205,53 @@ class TestRestore:
         assert resp.status_code == 200
         assert resp.json()["books"] == 0
         assert client.get("/api/v1/books").json()["total"] == 0
+
+    def test_roundtrip_conserve_wishlist_et_type(self, client):
+        """L'export/import préserve is_wishlist et type (16/08/2026)."""
+        client.post("/api/v1/books", json={"title": "Envie", "is_wishlist": 1})
+        client.post("/api/v1/books", json={"title": "Akira", "type": "manga"})
+        export = client.get("/api/v1/export")
+        resp = self._restore(client, export.content)
+        assert resp.status_code == 200
+
+        library = client.get("/api/v1/books", params={"page_size": 100}).json()["items"]
+        wishlist = client.get(
+            "/api/v1/books", params={"wishlist": "true", "page_size": 100}
+        ).json()["items"]
+        by_title = {b["title"]: b for b in library + wishlist}
+        assert by_title["Envie"]["is_wishlist"] is True
+        assert by_title["Envie"]["status"] == "tbr"
+        assert by_title["Akira"]["is_wishlist"] is False
+        assert by_title["Akira"]["type"] == "manga"
+
+    def test_restaure_un_ancien_dump_status_wishlist(self, client):
+        """Un backup antérieur au 16/08/2026 porte `status='wishlist'` :
+        la restauration applique le même backfill que la migration
+        (is_wishlist=1, status='tbr') — jamais de valeur morte en base."""
+        payload = {
+            "app": "marquepage",
+            "format_version": 1,
+            "exported_at": "2026-08-01T00:00:00",
+            "data": {
+                "series": [],
+                "books": [{
+                    "id": 1,
+                    "title": "Vieux souhait",
+                    "status": "wishlist",
+                    "owned": 0,
+                    "current_page": 0,
+                    "current_percent": 0,
+                    "created_at": "2026-01-01T00:00:00",
+                    "updated_at": "2026-01-01T00:00:00",
+                }],
+                "sessions": [], "highlights": [], "reads": [],
+            },
+        }
+        resp = self._restore(client, _make_zip(payload))
+        assert resp.status_code == 200, resp.text
+        book = client.get("/api/v1/books/1").json()
+        assert book["is_wishlist"] is True
+        assert book["status"] == "tbr"
 
     def test_rejette_zip_invalide_sans_toucher_la_base(self, client):
         _seed_library(client)

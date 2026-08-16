@@ -83,10 +83,14 @@ class TestListFilters:
 
     def test_filter_by_owned(self, client):
         self._seed(client)
-        client.post("/api/v1/books", json={"title": "Wish", "status": "wishlist"})
+        client.post("/api/v1/books", json={"title": "Wish", "is_wishlist": 1})
+        # owned=1 : la Bibliothèque (le wishlist, owned=0, est déjà exclu).
         resp = client.get("/api/v1/books", params={"owned": 1})
         assert resp.json()["total"] == 3
+        # owned=0 n'existe pas en Bibliothèque ; en mode wishlist, si.
         resp = client.get("/api/v1/books", params={"owned": 0})
+        assert resp.json()["total"] == 0
+        resp = client.get("/api/v1/books", params={"wishlist": "true", "owned": 0})
         assert resp.json()["total"] == 1
 
     def test_combined_filters(self, client):
@@ -96,9 +100,12 @@ class TestListFilters:
         })
         assert resp.json()["total"] == 2  # Dune + 1984
 
-    def test_status_and_owned_combined(self, client):
+    def test_legacy_status_wishlist_matches_nothing(self, client):
+        """L'ancien statut `wishlist` n'existe plus en base : le filtre ne
+        ramène rien (les wishlist vivent sous is_wishlist=1)."""
         self._seed(client)
-        resp = client.get("/api/v1/books", params={"status": "wishlist", "owned": 1})
+        client.post("/api/v1/books", json={"title": "Wish", "is_wishlist": 1})
+        resp = client.get("/api/v1/books", params={"status": "wishlist"})
         assert resp.json()["total"] == 0
 
 
@@ -110,17 +117,23 @@ class TestStatus:
         assert resp.json()["status"] == "reading"
         assert resp.json()["owned"] == 1
 
-    def test_wishlist_sets_owned_0(self, client):
+    def test_status_wishlist_rejected(self, client):
+        """`wishlist` n'est plus un statut (16/08/2026) : la validation du
+        schéma la refuse sur POST /books/{id}/status."""
         book = client.post("/api/v1/books", json={"title": "X"}).json()
         resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "wishlist"})
-        assert resp.json()["status"] == "wishlist"
-        assert resp.json()["owned"] == 0
+        assert resp.status_code == 422
+        # Le livre est resté inchangé.
+        assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "tbr"
 
-    def test_leaving_wishlist_restores_owned_1(self, client):
-        book = client.post("/api/v1/books", json={"title": "X", "status": "wishlist"}).json()
+    def test_acquire_restores_owned_1(self, client):
+        """La sortie de wishlist (POST /acquire) rend le livre possédé et le
+        met en pile à lire — remplace l'ancien passage status->wishlist."""
+        book = client.post("/api/v1/books", json={"title": "X", "is_wishlist": 1}).json()
         assert book["owned"] == 0
-        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "tbr"})
+        resp = client.post(f"/api/v1/books/{book['id']}/acquire")
         assert resp.json()["owned"] == 1
+        assert resp.json()["status"] == "tbr"
 
     def test_mark_read_creates_read_entry(self, client, db_engine):
         from sqlmodel import Session, select

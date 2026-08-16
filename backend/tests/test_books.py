@@ -1,7 +1,7 @@
 """Tests du CRUD /books et de la gestion des couvertures (§5).
 
 La DB est un SQLite frais par test (fixture `client`), les clients HTTP
-sortants sont mockés. On vérifie les règles métier : wishlist→owned=0,
+sortants sont mockés. On vérifie les règles métier : is_wishlist -> owned=0,
 current_percent recalculé, upsert auteurs, download local de couverture.
 """
 
@@ -27,19 +27,44 @@ class TestCreateBook:
         data = resp.json()
         assert data["title"] == "Le Meilleur des mondes"
         assert data["status"] == "tbr"
+        assert data["is_wishlist"] is False
+        assert data["type"] == "livre"  # défaut
         assert data["owned"] == 1
         assert data["current_page"] == 0
         assert data["current_percent"] == 0
         assert data["authors"] == []
 
-    def test_wishlist_forces_owned_0(self, client):
-        resp = client.post("/api/v1/books", json={"title": "Souhait", "status": "wishlist"})
+    def test_wishlist_creation_forces_owned_0(self, client):
+        """Création directe en wishlist : is_wishlist=1, status sans objet
+        forcé à 'tbr', non possédé."""
+        resp = client.post("/api/v1/books", json={"title": "Souhait", "is_wishlist": 1})
         assert resp.status_code == 201
-        assert resp.json()["owned"] == 0
-        assert resp.json()["status"] == "wishlist"
+        data = resp.json()
+        assert data["is_wishlist"] is True
+        assert data["status"] == "tbr"
+        assert data["owned"] == 0
+
+    def test_is_wishlist_invalid_value_rejected(self, client):
+        resp = client.post("/api/v1/books", json={"title": "X", "is_wishlist": 2})
+        assert resp.status_code == 422
+
+    def test_type_manga_accepted(self, client):
+        resp = client.post("/api/v1/books", json={"title": "Akira", "type": "manga"})
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["type"] == "manga"
+
+    def test_type_invalid_rejected(self, client):
+        resp = client.post("/api/v1/books", json={"title": "X", "type": "roman"})
+        assert resp.status_code == 422
 
     def test_status_invalid_rejected(self, client):
         resp = client.post("/api/v1/books", json={"title": "X", "status": "périmé"})
+        assert resp.status_code == 422
+
+    def test_status_wishlist_rejected(self, client):
+        """`wishlist` n'est plus une valeur de status (16/08/2026) : la
+        validation du schéma la refuse dès la création."""
+        resp = client.post("/api/v1/books", json={"title": "X", "status": "wishlist"})
         assert resp.status_code == 422
 
     def test_rating_bounds(self, client):
@@ -197,13 +222,14 @@ class TestListBooks:
         client.post("/api/v1/books", json={"title": "Alpha", "status": "read"})
         client.post("/api/v1/books", json={"title": "Bêta", "status": "tbr"})
         client.post("/api/v1/books", json={"title": "Gamma", "status": "tbr"})
+        client.post("/api/v1/books", json={"title": "Wish", "is_wishlist": 1})
 
     def test_list_all(self, client):
         self._seed(client)
         resp = client.get("/api/v1/books")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 3
+        assert data["total"] == 3  # le wishlist n'est JAMAIS listé par défaut
         assert len(data["items"]) == 3
         assert data["page"] == 1
 
@@ -239,6 +265,26 @@ class TestUpdateBook:
         data = resp.json()
         assert data["status"] == "reading"
         assert data["current_percent"] == 0.25
+
+    def test_patch_type(self, client):
+        book = client.post("/api/v1/books", json={"title": "Berserk"}).json()
+        assert book["type"] == "livre"
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"type": "manga"})
+        assert resp.status_code == 200
+        assert resp.json()["type"] == "manga"
+
+    def test_patch_type_invalid_rejected(self, client):
+        book = client.post("/api/v1/books", json={"title": "X"}).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"type": "webtoon"})
+        assert resp.status_code == 422
+
+    def test_patch_is_wishlist_ignored(self, client):
+        """PATCH ne peut pas changer `is_wishlist` : la seule sortie de
+        wishlist est POST /books/{id}/acquire (16/08/2026)."""
+        book = client.post("/api/v1/books", json={"title": "X"}).json()
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"is_wishlist": 1})
+        assert resp.status_code == 200
+        assert resp.json()["is_wishlist"] is False
 
     def test_patch_replaces_authors(self, client):
         book = client.post(
@@ -467,30 +513,26 @@ class TestPriceAndPurchase:
 
     def test_wishlist_with_price_rejected_at_create(self, client):
         resp = client.post("/api/v1/books", json={
-            "title": "Souhait", "status": "wishlist", "price_paid": 10,
+            "title": "Souhait", "is_wishlist": 1, "price_paid": 10,
         })
         assert resp.status_code == 422
 
     def test_patch_price_on_wishlist_rejected(self, client):
-        book = client.post("/api/v1/books", json={"title": "S", "status": "wishlist"}).json()
+        book = client.post("/api/v1/books", json={"title": "S", "is_wishlist": 1}).json()
         resp = client.patch(f"/api/v1/books/{book['id']}", json={"price_paid": 9.99})
         assert resp.status_code == 422
 
-    def test_moving_owned_book_to_wishlist_with_price_rejected(self, client):
+    def test_status_wishlist_rejected_everywhere(self, client):
+        """`wishlist` n'est plus une valeur de status : refusé en PATCH comme
+        sur POST /status, le livre reste inchangé (pas de commit partiel)."""
         book = client.post("/api/v1/books", json={"title": "Dune", "price_paid": 15}).json()
         resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "wishlist"})
         assert resp.status_code == 422
-        # Le livre est resté inchangé (pas de commit partiel).
+        resp = client.patch(f"/api/v1/books/{book['id']}", json={"status": "wishlist"})
+        assert resp.status_code == 422
+        # Le livre est resté inchangé.
         assert client.get(f"/api/v1/books/{book['id']}").json()["status"] == "tbr"
-
-    def test_clear_price_before_wishlist_ok(self, client):
-        book = client.post("/api/v1/books", json={"title": "Dune", "price_paid": 15}).json()
-        resp = client.patch(f"/api/v1/books/{book['id']}", json={
-            "status": "wishlist", "price_paid": None, "purchased_at": None,
-        })
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["status"] == "wishlist"
-        assert resp.json()["price_paid"] is None
+        assert client.get(f"/api/v1/books/{book['id']}").json()["price_paid"] == 15
 
 
 class TestPrimaryReading:
@@ -648,7 +690,7 @@ class TestTbrReorder:
 
     def test_wishlist_book_not_part_of_tbr(self, client):
         """Un livre wishlist n'est pas dans la PAL : rejeté comme non-tbr."""
-        book = client.post("/api/v1/books", json={"title": "W", "status": "wishlist"}).json()
+        book = client.post("/api/v1/books", json={"title": "W", "is_wishlist": 1}).json()
         resp = client.post("/api/v1/books/tbr/reorder", json={"book_ids": [book["id"]]})
         assert resp.status_code == 422
 
@@ -662,6 +704,105 @@ class TestDeleteBook:
 
     def test_delete_missing(self, client):
         assert client.delete("/api/v1/books/9999").status_code == 404
+
+
+class TestWishlist:
+    """Wishlist séparée de status + type (décision 16/08/2026, SPEC §2/§5).
+
+    La Bibliothèque n'affiche jamais un wishlist ; `?wishlist=true` est la
+    vue dédiée ; `POST /books/{id}/acquire` est la SEULE sortie de wishlist.
+    """
+
+    def _seed(self, client):
+        client.post("/api/v1/books", json={"title": "Bib 1"})
+        client.post("/api/v1/books", json={"title": "Bib 2", "status": "reading"})
+        client.post("/api/v1/books", json={"title": "Wish 1", "is_wishlist": 1})
+        client.post("/api/v1/books", json={"title": "Wish 2", "is_wishlist": 1})
+
+    def test_wishlist_excluded_even_with_status_filter(self, client):
+        """Le filtre `status` ne ramène JAMAIS un wishlist : exclu d'office."""
+        self._seed(client)
+        resp = client.get("/api/v1/books", params={"status": "tbr"})
+        titles = [b["title"] for b in resp.json()["items"]]
+        assert titles == ["Bib 1"]  # Wish 1/Wish 2 ont status='tbr' mais sont exclues
+
+    def test_wishlist_true_returns_only_wishlist(self, client):
+        self._seed(client)
+        resp = client.get("/api/v1/books", params={"wishlist": "true"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert {b["title"] for b in data["items"]} == {"Wish 1", "Wish 2"}
+        assert all(b["is_wishlist"] is True for b in data["items"])
+
+    def test_wishlist_mode_ignores_status_filter(self, client):
+        """En mode wishlist, `status` n'a pas de sens : ignoré."""
+        self._seed(client)
+        resp = client.get("/api/v1/books", params={"wishlist": "true", "status": "reading"})
+        assert resp.json()["total"] == 2  # pas filtré par status
+
+    def test_acquire_moves_wishlist_to_pile(self, client):
+        book = client.post("/api/v1/books", json={"title": "Envie", "is_wishlist": 1}).json()
+        assert book["is_wishlist"] is True
+        assert book["owned"] == 0
+
+        resp = client.post(f"/api/v1/books/{book['id']}/acquire")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["is_wishlist"] is False
+        assert data["status"] == "tbr"
+        assert data["owned"] == 1
+        # Il apparaît maintenant dans la Bibliothèque, plus dans la wishlist.
+        assert client.get("/api/v1/books", params={"wishlist": "true"}).json()["total"] == 0
+        assert client.get("/api/v1/books").json()["total"] == 1
+
+    def test_acquire_on_library_book_rejected(self, client):
+        book = client.post("/api/v1/books", json={"title": "Déjà en bib"}).json()
+        resp = client.post(f"/api/v1/books/{book['id']}/acquire")
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Ce livre n'est pas en wishlist — acquire ne concerne que les wishlist"
+
+    def test_acquire_missing_book(self, client):
+        assert client.post("/api/v1/books/9999/acquire").status_code == 404
+
+    def test_wishlist_status_forced_tbr(self, client):
+        """Un wishlist n'a pas de statut de lecture : le déplacer entre
+        statuts est neutralisé à 'tbr' (invariant)."""
+        book = client.post("/api/v1/books", json={"title": "W", "is_wishlist": 1}).json()
+        resp = client.post(f"/api/v1/books/{book['id']}/status", json={"status": "reading"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "tbr"  # sans objet, jamais 'reading'
+        assert resp.json()["is_wishlist"] is True
+
+
+class TestBookType:
+    """Type de livre (décision 16/08/2026) : filtre déclaratif et manuel."""
+
+    def _seed(self, client):
+        client.post("/api/v1/books", json={"title": "Dune"})
+        client.post("/api/v1/books", json={"title": "Akira", "type": "manga"})
+        client.post("/api/v1/books", json={"title": "Watchmen", "type": "comics"})
+        client.post("/api/v1/books", json={"title": "Solo Leveling", "type": "manhwa"})
+
+    def test_filter_by_type(self, client):
+        self._seed(client)
+        resp = client.get("/api/v1/books", params={"type": "manga"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["title"] == "Akira"
+
+    def test_filter_type_with_status_combined(self, client):
+        client.post("/api/v1/books", json={"title": "A", "type": "comics", "status": "read"})
+        client.post("/api/v1/books", json={"title": "B", "type": "comics"})
+        client.post("/api/v1/books", json={"title": "W", "type": "comics", "is_wishlist": 1})
+        resp = client.get("/api/v1/books", params={"type": "comics", "status": "read"})
+        assert resp.json()["total"] == 1
+        assert resp.json()["items"][0]["title"] == "A"
+
+    def test_invalid_type_filter_rejected(self, client):
+        resp = client.get("/api/v1/books", params={"type": "bd"})
+        assert resp.status_code == 422
 
 
 class TestSetCover:

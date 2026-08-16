@@ -1,8 +1,13 @@
 """Router /api/v1/books — CRUD livre, statut, couverture, taxonomie (§5).
 
 Règles métier appliquées ici :
-- `wishlist` force `owned = 0` ; tout autre statut force `owned = 1`
-  (SPEC.md §2 : la Bibliothèque = tous les livres `owned = 1`).
+- La Bibliothèque n'affiche jamais un wishlist (16/08/2026) : `GET /books`
+  exclut `is_wishlist=1` par défaut, quel que soit le filtre `status`.
+  `wishlist=true` retourne uniquement les livres souhaités ; la seule
+  sortie de wishlist est `POST /books/{id}/acquire` (is_wishlist -> 0,
+  status -> 'tbr', owned -> 1).
+- Un livre wishlist (`is_wishlist=1`) est non possédé (`owned=0`) et son
+  `status` est sans objet — forcé à 'tbr' (valeur valide de l'enum).
 - `current_percent` est recalculé à chaque écriture touchant
   `current_page` et/ou `page_count` (`end_page / page_count`).
 - Les auteurs, tags et genres sont upsertés par nom (tables `author` et
@@ -39,6 +44,7 @@ from app.models import (
     Series,
 )
 from app.schemas import (
+    BOOK_TYPES,
     BookCreate,
     BookFormatIn,
     BookFormatOut,
@@ -117,9 +123,14 @@ def _book_out(
 
 
 def _apply_status_rules(book: Book, prev_status: str | None = None) -> None:
-    """§2 : wishlist => non possédé ; tout autre statut => possédé.
+    """Cohérence des états dépendant du statut (décisions produit 15/08).
 
-    Cohérence des états dépendant du statut (décisions produit 15/08) :
+    - `wishlist` n'est plus un statut depuis le 16/08/2026 : un livre
+      souhaité porte `is_wishlist=1`, et son `status` est alors SANS OBJET
+      — forcé à 'tbr' (valeur valide de l'enum, jamais une valeur morte) et
+      `owned` à 0 (un souhaité n'est pas possédé). La seule sortie de
+      wishlist est `POST /books/{id}/acquire` ; une écriture qui tenterait
+      de déplacer un wishlist entre statuts est neutralisée ici.
     - quitter la Pile à lire (`tbr` -> autre chose) libère `tbr_rank` — le
       rang n'a de sens que dans la liste ; `tbr_note` est conservée (texte
       saisi par l'utilisateur, jamais effacé implicitement).
@@ -128,14 +139,18 @@ def _apply_status_rules(book: Book, prev_status: str | None = None) -> None:
       `uq_book_primary_reading` l'exigerait de toute façon au retour.
     Sur création, `prev_status` est None : aucune transition n'existe.
     """
-    book.owned = 0 if book.status == "wishlist" else 1
+    if book.is_wishlist:
+        book.status = "tbr"  # sans objet tant que wishlist
+        book.owned = 0       # un souhaité n'est pas possédé
     if prev_status is not None and prev_status != book.status:
         if prev_status == "tbr" and book.status != "tbr":
             book.tbr_rank = None
         if prev_status == "reading" and book.status != "reading":
             book.is_primary_reading = 0
-    if book.status != "tbr":
-        book.tbr_rank = None  # règle dérivée : pas de rang hors de la PAL
+    if book.is_wishlist or book.status != "tbr":
+        # règle dérivée : pas de rang hors de la PAL — et un wishlist n'est
+        # jamais dans la PAL, même si son status (sans objet) vaut 'tbr'.
+        book.tbr_rank = None
 
 
 def _check_price_allowed(book: Book) -> None:
@@ -145,7 +160,7 @@ def _check_price_allowed(book: Book) -> None:
     On REFUSE (422) plutôt que de vider silencieusement : effacer le prix
     réel d'un livre déjà lu est une décision qui appartient à l'utilisateur.
     """
-    if book.status == "wishlist" and (
+    if book.is_wishlist and (
         book.price_paid is not None or book.purchased_at is not None
     ):
         raise HTTPException(
@@ -325,6 +340,8 @@ async def _set_cover_from_url(
 @router.get("", response_model=BookList)
 def list_books(
     status: str | None = Query(default=None),
+    wishlist: bool = Query(default=False),
+    type: str | None = Query(default=None),
     tag: str | None = Query(default=None),
     genre: str | None = Query(default=None),
     author: str | None = Query(default=None),
@@ -337,7 +354,13 @@ def list_books(
 ) -> BookList:
     """Liste des livres avec filtres, tri et pagination (§5).
 
-    Filtres : `status`, `tag` (nom exact), `genre` (nom exact), `author`
+    Mode Bibliothèque (défaut) : n'inclut JAMAIS un livre wishlist
+    (`is_wishlist = 0`), quel que soit le filtre `status` passé — un
+    souhaité n'est pas un statut parmi d'autres, c'est une vue séparée
+    (16/08/2026). `wishlist=true` retourne uniquement les livres souhaités
+    ; dans ce mode, `status` n'a pas de sens et est ignoré.
+    `type` filtre par type de livre (`livre|manga|comics|manhwa`).
+    Autres filtres : `tag` (nom exact), `genre` (nom exact), `author`
     (nom exact), `owned` (0/1), `q` (sous-chaîne titre/sous-titre).
     `sort` : `title` | `created` (défaut, plus récent d'abord) | `rating`
     | `tbr_rank` (Pile à lire : ordre de la sélection, livres sans rang en
@@ -345,8 +368,24 @@ def list_books(
     """
     stmt = select(Book)
 
-    if status:
-        stmt = stmt.where(Book.status == status)
+    if wishlist:
+        stmt = stmt.where(Book.is_wishlist == 1)
+        # `status` est sans objet pour un wishlist : ignoré dans ce mode.
+    else:
+        # La Bibliothèque n'inclut JAMAIS un livre souhaité. `status !=
+        # 'wishlist'` est un filet défensif : `wishlist` n'est plus une
+        # valeur valide depuis le 16/08/2026, mais une ligne non migrée ne
+        # doit pas fuiter dans la Bibliothèque ni matcher un filtre mort.
+        stmt = stmt.where(Book.is_wishlist == 0, Book.status != "wishlist")
+        if status:
+            stmt = stmt.where(Book.status == status)
+    if type is not None:
+        if type not in BOOK_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"type invalide : {type!r} (livre|manga|comics|manhwa)",
+            )
+        stmt = stmt.where(Book.type == type)
     if owned is not None:
         stmt = stmt.where(Book.owned == owned)
     if q:
@@ -413,6 +452,8 @@ async def create_book(
 ) -> BookOut:
     """Crée un livre — depuis lookup (métadonnées + couverture) ou manuel.
 
+    `is_wishlist=1` ajoute directement le livre à la wishlist (son `status`
+    devient sans objet, forcé à 'tbr') ; `type` vaut 'livre' par défaut.
     Tout se joue dans une seule transaction : si le téléchargement de la
     couverture échoue, rien n'est persisté (pas de livre orphelin).
     """
@@ -470,7 +511,10 @@ async def update_book(
     """Mise à jour partielle. `authors`, `tags`, `genres`, `formats`
     remplacent leur liste ; `cover_url` déclenche un nouveau téléchargement
     local ; `series` upserté par nom (chaîne vide = retirer la série) ;
-    `is_primary_reading=true` désigne le livre principal et déset l'actuel."""
+    `is_primary_reading=true` désigne le livre principal et déset l'actuel ;
+    `type` (livre|manga|comics|manhwa) et `status` se posent directement.
+    `is_wishlist` n'est PAS accepté ici : la seule sortie de wishlist est
+    `POST /books/{id}/acquire` (et la création accepte l'entrée directe)."""
     book = session.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Livre introuvable")
@@ -549,10 +593,10 @@ def reorder_tbr(
     leur rang, puis les livres listés reçoivent 1..n. Les livres encore
     `tbr` non listés restent donc en fin de liste (rang NULL).
 
-    Strict par design : un id inexistant, non-`tbr` ou dupliqué renvoie
-    422 AVANT toute modification — une liste périmée doit être rechargée
-    par le front, pas corrigée ici (une session timer ouverte entre le
-    chargement et le drag fait sortir un livre de la PAL).
+    Strict par design : un id inexistant, non-`tbr`, wishlist ou dupliqué
+    renvoie 422 AVANT toute modification — une liste périmée doit être
+    rechargée par le front, pas corrigée ici (une session timer ouverte
+    entre le chargement et le drag fait sortir un livre de la PAL).
     """
     # Déclarée avant `POST /{book_id}/status` : sinon Starlette matcherait
     # « tbr » contre `book_id` et répondrait 422 au lieu d'appeler ici.
@@ -564,7 +608,9 @@ def reorder_tbr(
             raise HTTPException(
                 status_code=422, detail=f"Livre {book_id} introuvable"
             )
-        if book.status != "tbr":
+        # Un wishlist a un status sans objet (forcé à 'tbr') : il n'est
+        # PAS dans la Pile à lire, rejeté comme un non-tbr (16/08/2026).
+        if book.status != "tbr" or book.is_wishlist:
             raise HTTPException(
                 status_code=422,
                 detail=f"Le livre {book_id} n'est pas dans la Pile à lire (status={book.status})",
@@ -572,7 +618,11 @@ def reorder_tbr(
         books_by_id[book_id] = book
 
     # La liste fournie EST la sélection : dérangement global puis renumérotation.
-    session.exec(update(Book).where(Book.status == "tbr").values(tbr_rank=None))
+    session.exec(
+        update(Book)
+        .where(Book.status == "tbr", Book.is_wishlist == 0)
+        .values(tbr_rank=None)
+    )
     for rank, book_id in enumerate(payload.book_ids, start=1):
         books_by_id[book_id].tbr_rank = rank
 
@@ -582,7 +632,7 @@ def reorder_tbr(
     # fin), prête à remplacer la liste du front sans round-trip.
     books = session.exec(
         select(Book)
-        .where(Book.status == "tbr")
+        .where(Book.status == "tbr", Book.is_wishlist == 0)
         .order_by(Book.tbr_rank.is_(None), Book.tbr_rank.asc())
     ).all()
     items = []
@@ -601,10 +651,13 @@ def set_status(
     """Déplacement rapide entre statuts (§5).
 
     `status=read` avec `finished_at` crée une `read_entry` (la date de fin
-    appartient à la lecture). `status=wishlist` force `owned=0` et
-    inversement (§2) et interdit la présence d'un prix payé. C'est le
-    chemin MANUEL de la transition `tbr` -> `reading` (les deux chemins
-    automatiques sont le timer et l'import KOReader, cf.
+    appartient à la lecture). `wishlist` n'est plus une valeur acceptée
+    (16/08/2026) : la validation du schéma la refuse (422). Un livre en
+    wishlist n'a pas de statut de lecture significatif — toute écriture de
+    statut est neutralisée à 'tbr' par `_apply_status_rules` ; la seule
+    transition wishlist -> bibliothèque est `POST /books/{id}/acquire`.
+    C'est le chemin MANUEL de la transition `tbr` -> `reading` (les deux
+    chemins automatiques sont le timer et l'import KOReader, cf.
     sessions.mark_started_reading).
     """
     book = session.get(Book, book_id)
@@ -627,6 +680,34 @@ def set_status(
             created_at=_now_iso(),
         ))
 
+    session.commit()
+    session.refresh(book)
+    tags, genres = _get_labels(session, book.id)
+    return _book_out(session, book, _get_author_names(session, book.id), tags, genres)
+
+
+@router.post("/{book_id}/acquire", response_model=BookOut)
+def acquire_book(book_id: int, session: Session = Depends(get_session)) -> BookOut:
+    """Sortie de wishlist (16/08/2026) : « je l'ai acheté, il rejoint ma pile ».
+
+    `is_wishlist` passe à 0, `status` à 'tbr', `owned` à 1. C'est la SEULE
+    transition wishlist -> bibliothèque : il n'existe aucun endpoint pour
+    rentrer un livre déjà en bibliothèque dans la wishlist (cas non
+    demandé, cf. anti scope-creep). Sans body — rien à saisir.
+    """
+    book = session.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Livre introuvable")
+    if book.is_wishlist != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Ce livre n'est pas en wishlist — acquire ne concerne que les wishlist",
+        )
+
+    book.is_wishlist = 0
+    book.status = "tbr"
+    book.owned = 1
+    session.add(book)
     session.commit()
     session.refresh(book)
     tags, genres = _get_labels(session, book.id)

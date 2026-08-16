@@ -31,6 +31,12 @@ class Book(SQLModel, table=True):
     __table_args__ = (
         Index("idx_book_status", "status"),
         Index("idx_book_koreader_md5", "koreader_md5"),
+        # Type de livre (décision 16/08/2026) : enum borné au niveau base,
+        # même pattern que le CHECK de `book_format.format`.
+        CheckConstraint(
+            "type IN ('livre', 'manga', 'comics', 'manhwa')",
+            name="ck_book_type",
+        ),
         # Dédup de l'import Book Track (§4.6) : deux livres ne peuvent pas
         # partager le même UUID Book Track. SQLite n'applique pas l'unicité
         # aux NULL — les livres hors import ne sont pas affectés.
@@ -63,11 +69,22 @@ class Book(SQLModel, table=True):
         sa_type=Text,
         sa_column_kwargs={"server_default": sqltext("'tbr'")},
     )
-    # wishlist | tbr | reading | read | dnf | on_hold
+    # tbr | reading | read | dnf | on_hold — `wishlist` n'est plus une valeur
+    # de status depuis le 16/08/2026 : un livre souhaité porte `is_wishlist`.
+    is_wishlist: int = Field(
+        default=0,
+        sa_column_kwargs={"server_default": sqltext("0")},
+    )  # 1 = souhaité, hors bibliothèque ; `status` sans objet tant que 1
+    type: str = Field(
+        default="livre",
+        sa_type=Text,
+        sa_column_kwargs={"server_default": sqltext("'livre'")},
+    )
+    # livre | manga | comics | manhwa (décision 16/08/2026) — CHECK ck_book_type
     owned: int = Field(
         default=1,
         sa_column_kwargs={"server_default": sqltext("1")},
-    )  # 0 pour wishlist
+    )  # 0 pour un wishlist ou un format non acheté (emprunt…)
     rating: float | None = None  # 0.5 .. 5.0 ; null si non noté
     current_page: int = Field(
         default=0,

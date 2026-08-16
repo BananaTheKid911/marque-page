@@ -48,14 +48,17 @@ class TestParseRealFile:
         """state (possession) et readingStatus (lecture) sont indépendants."""
         result = parse_booktrack_csv(REAL_CSV.read_bytes())
         by_id = {r.booktrack_id: r for r in result.rows}
-        # Annihilation : WISHLIST + reading -> wishlist prime (jamais lu dans l'app)
+        # Annihilation : WISHLIST + reading -> is_wishlist=1 (status sans
+        # objet -> 'tbr', jamais lu dans l'app)
         annihil = by_id["C48313E0-D740-431A-BE59-9B573A2A8F83"]
-        assert annihil.status == "wishlist"
+        assert annihil.is_wishlist == 1
+        assert annihil.status == "tbr"
         assert annihil.owned == 0
         # Blade Runner : NOT_OWNED + read -> lu mais non possédé
         blader = by_id["83571D46-01A1-4DF3-876D-39948D2DDB62"]
         assert blader.status == "read"
         assert blader.owned == 0
+        assert blader.is_wishlist == 0
         # Batman : BOOKSHELF + to-read -> possédé, à lire
         batman = by_id["3BE0C914-C732-4446-82A8-08343C738825"]
         assert batman.status == "tbr"
@@ -99,14 +102,14 @@ class TestParseRealFile:
 
 class TestParserEdgeCases:
     def test_map_status_wishlist_wins(self):
-        assert _map_status("WISHLIST", "read") == ("wishlist", 0)
-        assert _map_status("WISHLIST", "") == ("wishlist", 0)
+        assert _map_status("WISHLIST", "read") == ("tbr", 0, 1)
+        assert _map_status("WISHLIST", "") == ("tbr", 0, 1)
 
     def test_map_status_unknown_reading_status_defaults_tbr(self):
-        assert _map_status("BOOKSHELF", "quelque-chose") == ("tbr", 1)
+        assert _map_status("BOOKSHELF", "quelque-chose") == ("tbr", 1, 0)
 
     def test_map_status_not_owned(self):
-        assert _map_status("NOT_OWNED", "read") == ("read", 0)
+        assert _map_status("NOT_OWNED", "read") == ("read", 0, 0)
 
     def test_parse_tags_color_dropped(self):
         raw = "Cyberpunk|||#DB34F2;Megacorporations|||#00D2E0"
@@ -182,9 +185,10 @@ class TestImportEndpoint:
         assert data["books_skipped"] == 0
         assert data["line_errors"] == []
 
-        # La bibliothèque contient les livres avec leurs métadonnées.
+        # La Bibliothèque (mode par défaut) n'affiche jamais les wishlist :
+        # 77 lignes - 37 wishlist = 40 livres.
         books = client.get("/api/v1/books", params={"page_size": 100}).json()["items"]
-        assert len(books) == 77
+        assert len(books) == 40
         dune = next(b for b in books if b["title"] == "Dune #01 Éd. Collector")
         assert dune["series_name"] == "Dune"
         assert dune["series_index"] is None  # seriesNumber vide dans le CSV réel
@@ -203,14 +207,18 @@ class TestImportEndpoint:
         assert second["books_skipped"] == 77
 
         books = client.get("/api/v1/books", params={"page_size": 100}).json()["items"]
-        assert len(books) == 77
+        assert len(books) == 40  # la bibliothèque, hors wishlist
 
     def test_wishlist_books_have_no_price(self, client):
         resp = self._upload(client, REAL_CSV.read_bytes())
         assert resp.status_code == 200
-        books = client.get("/api/v1/books", params={"status": "wishlist", "page_size": 100}).json()["items"]
+        books = client.get(
+            "/api/v1/books", params={"wishlist": "true", "page_size": 100}
+        ).json()["items"]
         assert len(books) == 37
         for b in books:
+            assert b["is_wishlist"] is True
+            assert b["status"] == "tbr"  # statut sans objet pour un wishlist
             assert b["owned"] == 0
             assert b["price_paid"] is None
             assert b["purchased_at"] is None
@@ -230,8 +238,15 @@ class TestImportEndpoint:
         assert data["covers_failed"] == 0
 
         # Les fichiers sont servis depuis /covers (aucune URL distante).
-        books = client.get("/api/v1/books", params={"page_size": 100}).json()["items"]
-        with_cover = [b for b in books if b["cover_url"]]
+        # La liste par défaut exclut les wishlist : on compte les couvertures
+        # sur Bibliothèque + wishlist pour recouper covers_downloaded.
+        library = client.get("/api/v1/books", params={"page_size": 100}).json()["items"]
+        wishlist = client.get(
+            "/api/v1/books", params={"wishlist": "true", "page_size": 100}
+        ).json()["items"]
+        with_cover = [
+            b for b in library + wishlist if b["cover_url"]
+        ]
         assert len(with_cover) == data["covers_downloaded"]
         for b in with_cover:
             assert b["cover_url"].startswith("/covers/")

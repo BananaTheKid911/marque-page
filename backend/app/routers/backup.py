@@ -210,6 +210,14 @@ def _restore_data(session: Session, payload: dict) -> None:
             _upsert_series(session, name)
 
     for book_data in data["books"]:
+        # Backfill des dumps antérieurs au 16/08/2026 : `wishlist` y était
+        # un statut. On applique la même règle que la migration — is_wishlist
+        # prime, status repasse à 'tbr' (jamais de valeur morte en base).
+        is_wishlist = int(bool(book_data.get("is_wishlist", False)))
+        raw_status = book_data.get("status", "tbr")
+        if raw_status == "wishlist":
+            raw_status = "tbr"
+            is_wishlist = 1
         book = Book(
             id=book_data["id"],
             title=book_data["title"],
@@ -223,7 +231,9 @@ def _restore_data(session: Session, payload: dict) -> None:
             description=book_data.get("description"),
             cover_path=book_data.get("cover_path"),
             cover_source=book_data.get("cover_source"),
-            status=book_data.get("status", "tbr"),
+            status=raw_status,
+            is_wishlist=is_wishlist,
+            type=book_data.get("type", "livre"),
             owned=int(book_data.get("owned", 1)),
             rating=book_data.get("rating"),
             current_page=int(book_data.get("current_page", 0)),

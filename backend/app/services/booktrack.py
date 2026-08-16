@@ -92,6 +92,7 @@ class BooktrackRow:
     language: str | None = None
     description: str | None = None
     status: str = "tbr"
+    is_wishlist: int = 0  # 1 = souhaité (state=WISHLIST), hors bibliothèque
     owned: int = 1
     rating: float | None = None
     acquired_date: str | None = None
@@ -214,12 +215,14 @@ def _parse_formats(raw: str | None, owned: int) -> list[BooktrackFormat]:
     return formats
 
 
-def _map_status(state: str | None, reading_status: str | None) -> tuple[str, int]:
-    """Combine les DEUX axes orthogonaux en (status, owned) pour l'app.
+def _map_status(state: str | None, reading_status: str | None) -> tuple[str, int, int]:
+    """Combine les DEUX axes orthogonaux en (status, owned, is_wishlist).
 
-    Règles (SPEC §4.6) :
-    - WISHLIST gagne sur tout : un livre souhaité est en wishlist, jamais lu
-      dans l'app (la lecture est une information Book Track perdue ici).
+    Règles (SPEC §4.6, modèle 16/08/2026) :
+    - WISHLIST gagne sur tout : un livre souhaité est en wishlist
+      (`is_wishlist=1`), jamais lu dans l'app (la lecture est une
+      information Book Track perdue ici). `status` devient sans objet ->
+      'tbr' (`wishlist` n'est plus une valeur de statut).
     - Sinon `readingStatus` pilote le statut ; `state` pilote `owned`.
     - `readingStatus` vide ou inconnu -> `tbr` (statut par défaut de l'app).
     """
@@ -227,11 +230,11 @@ def _map_status(state: str | None, reading_status: str | None) -> tuple[str, int
     rs = _clean(reading_status) or ""
 
     if state == "WISHLIST":
-        return "wishlist", 0
+        return "tbr", 0, 1
 
     owned = STATE_OWNED.get(state, 1)
     status = READING_STATUS_MAP.get(rs, "tbr")
-    return status, owned
+    return status, owned, 0
 
 
 def _first_non_empty(values: list[str | None]) -> str | None:
@@ -294,7 +297,7 @@ def _parse_row(raw: dict[str, str], line_no: int) -> BooktrackRow:
     if not title:
         raise BooktrackParseError("title manquant")
 
-    status, owned = _map_status(raw.get("state"), raw.get("readingStatus"))
+    status, owned, is_wishlist = _map_status(raw.get("state"), raw.get("readingStatus"))
 
     authors = _split_semicolon(raw.get("authors"))
     genres = _split_semicolon(raw.get("categories"))
@@ -319,6 +322,7 @@ def _parse_row(raw: dict[str, str], line_no: int) -> BooktrackRow:
         language=_clean(raw.get("languages")),
         description=_clean(raw.get("description")),
         status=status,
+        is_wishlist=is_wishlist,
         owned=owned,
         rating=_clean_float(raw.get("userRating")),
         purchased_at=_clean_date(raw.get("purchaseDate")),

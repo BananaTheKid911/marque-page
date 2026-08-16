@@ -73,9 +73,11 @@ def mark_started_reading(book: Book) -> None:
     implicitement. La désignation du livre « en cours » principal reste
     manuelle (cette transition ne touche pas `is_primary_reading`), et
     `on_hold` n'est volontairement pas traité ici — seul le chemin manuel
-    le reprend. L'appelant commit.
+    le reprend. Un wishlist n'a pas de statut de lecture (16/08/2026) :
+    jamais de transition automatique vers `reading` tant que `is_wishlist`.
+    L'appelant commit.
     """
-    if book.status == "tbr":
+    if book.status == "tbr" and not book.is_wishlist:
         book.status = "reading"
         book.tbr_rank = None
 
