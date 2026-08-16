@@ -7,7 +7,8 @@ import { STATUS_LABELS } from "@/lib/constants"
 import { SeriesTomes } from "./SeriesTomes"
 import { FormatBadges } from "./FormatBadges"
 import { SessionEndControl } from "./SessionEndControl"
-import type { Book } from "@/types/book"
+import { StatusControl } from "./StatusControl"
+import type { Book, BookStatus } from "@/types/book"
 
 /** État du chrono de session, tel que consommé par le bouton primaire. */
 export interface BookHeroTimerState {
@@ -28,6 +29,12 @@ interface BookHeroProps {
   onMarkReading?: () => void
   onTogglePrimary?: () => void
   onMarkRead?: () => void
+  /**
+   * Changement de statut manuel générique (StatusControl) — voir sa propre
+   * doc pour la liste des statuts atteignables et pourquoi "read" en est
+   * exclu.
+   */
+  onChangeStatus?: (status: BookStatus) => void
   /**
    * Le clic sur "Arrêter le chrono" ouvre `SessionEndControl` à la place du
    * bouton (AGENTS.md : masse noire unique, elle se déplace du déclencheur
@@ -53,6 +60,24 @@ interface BookHeroProps {
  * 15/08/2026, à côté des deux chemins automatiques côté backend (démarrer
  * une session, import KOReader). Reste en outline : ce n'est pas l'action
  * primaire de la ligne.
+ *
+ * CTA par statut (revu le 16/08/2026, retour terrain de Jordy) :
+ * - wishlist  : aucun raccourci rapide (rien à chronométrer, rien à
+ *   "terminer" avant possession) — seul StatusControl permet wishlist→tbr
+ *   ("je l'ai acheté, il rejoint ma pile").
+ * - tbr       : Démarrer une session, Marquer comme en cours, Marquer lu.
+ * - reading   : Démarrer une session, Définir comme livre principal,
+ *   Marquer lu.
+ * - on_hold   : Démarrer une session, Reprendre la lecture, Marquer lu.
+ * - dnf       : Marquer lu (repris et terminé après abandon) ; reprendre la
+ *   lecture passe par StatusControl (dnf → tbr/on_hold), pas par un
+ *   raccourci dédié — cas trop rare pour un deuxième bouton en dur.
+ * - read      : rien (StatusControl reste disponible pour corriger une
+ *   erreur de statut).
+ *
+ * StatusControl (menu, jamais un bouton plein — un seul par écran) couvre
+ * toutes les transitions manuelles restantes, dont wishlist→tbr qui n'avait
+ * aucun chemin avant ce correctif.
  */
 export function BookHero({
   book,
@@ -63,15 +88,25 @@ export function BookHero({
   onMarkReading,
   onTogglePrimary,
   onMarkRead,
+  onChangeStatus,
   endSessionOpen = false,
   onRequestEndSession,
   onConfirmEndSession,
   onCancelEndSession,
 }: BookHeroProps) {
-  const showCaption = book.status === "dnf" || book.status === "on_hold" || book.status === "wishlist"
+  const showStatusCaption = book.status === "dnf" || book.status === "on_hold" || book.status === "wishlist"
+  // Un livre tbr/reading/on_hold sans aucun format possédé (book.owned=0)
+  // n'est pas une wishlist : il est déjà dans la pile, juste pas encore
+  // acheté. FormatBadges le détaille par format ; cette légende couvre le
+  // cas où le livre n'a même pas de format renseigné.
+  const showUnownedCaption = !showStatusCaption && !book.owned
   const canStartSession = book.status === "reading" || book.status === "tbr" || book.status === "on_hold"
   const hasPurchaseInfo =
     book.status !== "wishlist" && (book.pricePaid != null || book.purchasedAt != null)
+  // "Marquer comme lu" n'a de sens qu'une fois le livre au moins dans la
+  // pile : un wishlist n'est possédé dans aucun format, il ne peut pas
+  // être "lu" avant de rejoindre la pile (StatusControl : wishlist → tbr).
+  const canMarkRead = book.status !== "read" && book.status !== "wishlist"
   const year = extractYear(book.publishedDate)
   const allLabels = [...book.genres, ...book.tags]
 
@@ -92,9 +127,14 @@ export function BookHero({
 
       <div className="flex flex-1 flex-col gap-4">
         <div>
-          {showCaption && (
+          {showStatusCaption && (
             <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-mute">
               {STATUS_LABELS[book.status]}
+            </p>
+          )}
+          {showUnownedCaption && (
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-mute">
+              Non possédé
             </p>
           )}
           <h1 className="text-balance text-[21px] font-semibold leading-snug text-ink">
@@ -221,7 +261,7 @@ export function BookHero({
               {book.isPrimaryReading ? "Livre principal actuel" : "Définir comme livre principal"}
             </Button>
           )}
-          {book.status !== "read" && (
+          {canMarkRead && (
             <Button
               variant="outline"
               size="lg"
@@ -234,6 +274,8 @@ export function BookHero({
             </Button>
           )}
         </div>
+
+        {onChangeStatus && <StatusControl status={book.status} busy={busy} onChange={onChangeStatus} />}
 
         {error && (
           <p className="text-[12.5px] text-ink-soft" role="alert">

@@ -19,10 +19,22 @@ interface BookCoverProps {
  * portée chaude, aucune bordure. Le statut "dnf" (abandonné) est un des
  * écrans candidats à une future couleur de signal — non tranchée, donc
  * traité ici en typographie pure (aucune couleur ajoutée).
+ *
+ * "wishlist" a sa propre légende (STATUS_LABELS), distincte de
+ * "Non possédé" qui couvre un cas différent : un livre déjà dans la pile
+ * ou en cours (`status` ≠ wishlist) mais dont aucun format n'est encore
+ * possédé (`book.owned = 0`). Les deux ne se recoupent jamais — retour
+ * terrain du 16/08/2026, la grille ne distinguait pas ces deux cas avant.
  */
 export function BookCover({ book, tomeLabel }: BookCoverProps) {
   const showProgress = book.status === "reading" && book.currentPercent > 0
-  const showStatusCaption = book.status === "dnf" || book.status === "on_hold"
+  const showStatusCaption = book.status === "dnf" || book.status === "on_hold" || book.status === "wishlist"
+  // Distinct de "wishlist" : un livre déjà dans la pile/en cours mais dont
+  // aucun format n'est encore possédé (book.owned=0) — cf. AGENTS.md,
+  // "je veux ce livre" (statut) vs. "je ne l'ai pas encore" (owned par
+  // format). Une seule légende à la fois : le statut prime s'il est déjà
+  // montré, jamais deux lignes empilées sous une pochette de grille.
+  const showUnownedCaption = !showStatusCaption && !book.owned
 
   return (
     <Link to={`/livres/${book.id}`} className="group block text-left">
@@ -62,6 +74,11 @@ export function BookCover({ book, tomeLabel }: BookCoverProps) {
         {showStatusCaption && (
           <p className="mt-0.5 text-[11px] uppercase tracking-[0.12em] text-ink-mute">
             {STATUS_LABELS[book.status]}
+          </p>
+        )}
+        {showUnownedCaption && (
+          <p className="mt-0.5 text-[11px] uppercase tracking-[0.12em] text-ink-mute">
+            Non possédé
           </p>
         )}
       </div>

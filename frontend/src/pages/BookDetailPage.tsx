@@ -17,6 +17,7 @@ import { BookHero, type BookHeroTimerState } from "@/components/book/BookHero"
 import { BookProgressStat } from "@/components/book/BookProgressStat"
 import { SessionHistory } from "@/components/book/SessionHistory"
 import { HighlightFeed } from "@/components/book/HighlightFeed"
+import type { BookStatus } from "@/types/book"
 
 // ---------------------------------------------------------------------------
 // Persistance du chrono (AGENTS.md : le timer survit à un rechargement
@@ -73,7 +74,9 @@ interface ActiveTimer {
  * Page Détail d'un livre — GET /books/{id} + sessions + highlights.
  * Les boutons de BookHero sont câblés : chrono (POST /timer/start|stop),
  * passage manuel tbr/on_hold → reading (POST /books/{id}/status), lecture
- * principale (PATCH is_primary_reading) et fin de lecture (status=read).
+ * principale (PATCH is_primary_reading), fin de lecture (status=read) et
+ * changement de statut générique (StatusControl, même endpoint POST
+ * /books/{id}/status sans `finished_at`).
  */
 export function BookDetailPage() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -190,6 +193,11 @@ export function BookDetailPage() {
     void runMutation(() => setBookStatus(id, { status: "read", finished_at: finishedAt }))
   }
 
+  function handleChangeStatus(status: BookStatus) {
+    if (busy) return
+    void runMutation(() => setBookStatus(id, { status }))
+  }
+
   if (invalidId || (bookData.error && bookData.error instanceof ApiError && bookData.error.status === 404)) {
     return (
       <div className="flex flex-col items-start gap-4">
@@ -248,6 +256,7 @@ export function BookDetailPage() {
         onMarkReading={handleMarkReading}
         onTogglePrimary={handleTogglePrimary}
         onMarkRead={handleMarkRead}
+        onChangeStatus={handleChangeStatus}
         endSessionOpen={endSessionOpen}
         onRequestEndSession={handleRequestEndSession}
         onConfirmEndSession={handleConfirmEndSession}
