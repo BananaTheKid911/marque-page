@@ -6,12 +6,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
-from app.routers import backup, books, highlights, koreader, lookup, reads, sessions, stats, taxonomy
+from app.routers import backup, booktrack, books, highlights, koreader, lookup, reads, sessions, stats, taxonomy
+from app.services.koreader_watcher import KoreaderWatcher
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Watcher du dossier surveillé KOReader (§4.4) : démarre avec l'app,
+    # importe automatiquement les statistics.sqlite3 poussés par la Kindle.
+    watcher = KoreaderWatcher()
+    watcher.start()
     yield
+    await watcher.stop()
     # Fermeture propre des clients HTTP singleton (pool de connexions).
     await books.close_http_client()
     await lookup.close_metadata_client()
@@ -26,6 +32,7 @@ app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(reads.router, prefix="/api/v1")
 app.include_router(highlights.router, prefix="/api/v1")
 app.include_router(koreader.router, prefix="/api/v1")
+app.include_router(booktrack.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(backup.router, prefix="/api/v1")
 

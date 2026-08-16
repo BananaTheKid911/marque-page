@@ -40,6 +40,10 @@ ALLOWED_COVER_HOSTS = {
     "books.google.com",
     "books.googleusercontent.com",
     "upload.wikimedia.org",
+    # Hôtes d'images de l'export Book Track (SPEC §4.6) : les couvertures
+    # importées depuis Book Track vivent chez Goodreads et ISBNdb.
+    "i.gr-assets.com",
+    "images.isbndb.com",
 }
 
 
@@ -79,6 +83,16 @@ SESSION_GAP_SEC = _read_gap_sec()
 # Surchargeable via MARQUEPAGE_KOREADER_PENDING pour le dev et les tests.
 KOREADER_PENDING_DIR = Path(
     os.environ.get("MARQUEPAGE_KOREADER_PENDING", "/app/data/koreader-pending")
+)
+
+# Dossier surveillé KOReader (§4.4, décision 16/08) : la Kindle pousse son
+# `statistics.sqlite3` en WebDAV vers le MN56 quand elle est sur le même
+# WiFi. Un watcher dans l'app détecte le fichier et déclenche l'import
+# (auto-confirm si tous les livres matchent déjà, sinon l'écran de
+# rattachement manuel). Volume Docker /app/koreader-inbox.
+# Surchargeable via MARQUEPAGE_KOREADER_INBOX pour le dev et les tests.
+KOREADER_INBOX_DIR = Path(
+    os.environ.get("MARQUEPAGE_KOREADER_INBOX", "/app/koreader-inbox")
 )
 
 # Taille maximale d'un statistics.sqlite3 uploadé (octets) — 50 Mo, très

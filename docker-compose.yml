@@ -13,6 +13,11 @@ services:
     volumes:
       - /home/banserv/docker/marquepage/data:/app/data
       - /home/banserv/docker/marquepage/covers:/app/covers
+      # Dossier surveillé KOReader (§4.4, décision 16/08) : la Kindle pousse
+      # son statistics.sqlite3 en WebDAV ici quand elle est sur le même WiFi.
+      # Cible du serveur WebDAV à monter (Phase 6) — le watcher de l'app
+      # scrute ce dossier et importe automatiquement.
+      - /home/banserv/docker/marquepage/koreader-inbox:/app/koreader-inbox
     ports:
       # Bindé sur Tailscale (100.68.214.9) uniquement — jamais sur 0.0.0.0.
       - "100.68.214.9:8123:8000"

@@ -284,6 +284,40 @@ def confirm_import(
         path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    result = apply_koreader_import(session, stats, explicit, file_sha256=payload.import_id)
+    session.commit()
+
+    # Import consommé : le fichier pending ne sert plus à rien.
+    path.unlink(missing_ok=True)
+
+    return KoreaderConfirmResult(
+        import_id=payload.import_id,
+        sessions_added=result.sessions_added,
+        sessions_skipped=result.sessions_skipped,
+        books_matched=result.books_matched,
+        books_unmatched=result.books_unmatched,
+    )
+
+
+def apply_koreader_import(
+    session: Session,
+    stats: KoreaderStats,
+    explicit: dict[int, int] | None = None,
+    file_sha256: str = "watcher",
+) -> KoreaderConfirmResult:
+    """Applique un import KOReader sur la base : sessions + rattachements.
+
+    Logique partagée entre POST /koreader/import/confirm (rattachements
+    choisis par l'utilisateur) et le watcher du dossier surveillé (auto-
+    rattachement par `koreader_md5` uniquement — jamais le flou seul, §4.3).
+    `explicit` mappe `koreader_book_id -> book_id` (choix manuel) ; absent
+    ou vide, seuls les livres déjà rattachés par `koreader_md5` matchent.
+    Idempotence par `koreader_hash` : rejouer le même fichier n'ajoute rien.
+    `file_sha256` est journalisé dans `koreader_import` (le watcher le
+    calcule lui-même, l'API confirme celui de l'upload).
+
+    L'appelant commit ; un rollback laisse la base inchangée.
+    """
     app_books = session.exec(select(Book)).all()
     by_md5 = {b.koreader_md5: b for b in app_books if b.koreader_md5}
     existing = _existing_hashes(session)
@@ -291,6 +325,7 @@ def confirm_import(
     rebuilt = sessions_by_book(stats.rows, config.SESSION_GAP_SEC, detect_duration_factor(stats.books, stats.rows))
     total_sessions = sum(len(v) for v in rebuilt.values())
 
+    explicit = explicit or {}
     sessions_added = 0
     linked_book_ids: set[int] = set()  # id_book KOReader rattachés
 
@@ -340,19 +375,15 @@ def confirm_import(
 
     session.add(
         KoreaderImport(
-            file_sha256=payload.import_id,
+            file_sha256=file_sha256,
             sessions_added=sessions_added,
             books_matched=books_matched,
             books_unmatched=books_unmatched,
         )
     )
-    session.commit()
-
-    # Import consommé : le fichier pending ne sert plus à rien.
-    path.unlink(missing_ok=True)
 
     return KoreaderConfirmResult(
-        import_id=payload.import_id,
+        import_id="",
         sessions_added=sessions_added,
         sessions_skipped=max(0, total_sessions - sessions_added),
         books_matched=books_matched,

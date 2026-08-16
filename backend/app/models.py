@@ -31,6 +31,10 @@ class Book(SQLModel, table=True):
     __table_args__ = (
         Index("idx_book_status", "status"),
         Index("idx_book_koreader_md5", "koreader_md5"),
+        # Dédup de l'import Book Track (§4.6) : deux livres ne peuvent pas
+        # partager le même UUID Book Track. SQLite n'applique pas l'unicité
+        # aux NULL — les livres hors import ne sont pas affectés.
+        Index("uq_book_booktrack_id", "booktrack_id", unique=True),
         # Exclusivité du livre « en cours » : au plus un livre `reading`
         # porte `is_primary_reading = 1` à la fois (décision produit 15/08).
         Index(
@@ -103,6 +107,9 @@ class Book(SQLModel, table=True):
     openlibrary_edition: str | None = Field(default=None, sa_type=Text)
     google_books_id: str | None = Field(default=None, sa_type=Text)
     koreader_md5: str | None = Field(default=None, sa_type=Text)  # clé de matching KOReader (partial md5)
+    # UUID Book Track (import §4.6) : clé de dédup de l'import — jamais par
+    # titre, un même titre peut exister en deux éditions/statuts.
+    booktrack_id: str | None = Field(default=None, sa_type=Text)
     notes: str | None = Field(default=None, sa_type=Text)  # avis perso / review
     created_at: str = Field(default_factory=_utcnow_iso, sa_type=Text)
     updated_at: str = Field(default_factory=_utcnow_iso, sa_type=Text)

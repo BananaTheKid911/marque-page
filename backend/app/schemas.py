@@ -372,6 +372,25 @@ class RestoreResult(BaseModel):
     covers_written: int = 0
 
 
+class BooktrackImportResult(BaseModel):
+    """Résumé de `POST /import/booktrack` — import CSV Book Track (§4.6).
+
+    Sémantique AJOUT : `books_created` = livres insérés, `books_skipped` =
+    lignes déjà présentes (dédup par `booktrack_id`, re-jeu du fichier
+    sans doublon). `line_errors` porte les lignes non importables (id ou
+    titre manquant) sans bloquer le reste. Les couvertures sont téléchargées
+    en best-effort après le commit : un échec d'image ne fait pas échouer
+    l'import des données.
+    """
+
+    rows_parsed: int = 0
+    books_created: int = 0
+    books_skipped: int = 0
+    line_errors: list[tuple[int, str]] = []
+    covers_downloaded: int = 0
+    covers_failed: int = 0
+
+
 # ---------------------------------------------------------------------------
 # TAXONOMIE — auteurs et labels (tags/genres)
 # ---------------------------------------------------------------------------
